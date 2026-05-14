@@ -1,0 +1,60 @@
+{% set sites = craft.app.sites.allSites %}
+{% if sites|length > 1 %}
+    {% set targetOptions = [] %}
+    {% set targetOptions = targetOptions|merge([{label: "All Sites", value: "all"}]) %}
+    {% for site in sites %}
+        {% if site.id != element.siteId %}
+            {% set targetOptions = targetOptions|merge([{label: site.name, value: site.id}]) %}
+        {% endif %}
+    {% endfor %}
+
+    <div id="auto-translator-sidebar" class="meta" style="margin-top: 20px; border-top: 1px solid rgba(0, 0, 0, 0.1); padding-top: 20px;">
+        <div class="data">
+            <h5 class="heading">Auto Translator</h5>
+            <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+                <select id="auto-translator-target-site" class="select" style="width: 100%;">
+                    {% for option in targetOptions %}
+                        <option value="{{ option.value }}">{{ option.label }}</option>
+                    {% endfor %}
+                </select>
+                <button type="button" class="btn" id="auto-translator-trigger-btn">
+                    Translate
+                </button>
+                <div id="auto-translator-status" style="font-size: 12px; color: green; display: none;">Queued!</div>
+            </div>
+        </div>
+    </div>
+
+    {% js %}
+        $(document).ready(function() {
+            var $sidebar = $('#settings');
+            if ($sidebar.length === 0) {
+                $sidebar = $('#details'); // Fallback for some layouts
+            }
+            if ($sidebar.length > 0) {
+                $sidebar.append($('#auto-translator-sidebar'));
+            }
+
+            $('#auto-translator-trigger-btn').on('click', function(e) {
+                e.preventDefault();
+                var $btn = $(this);
+                var targetSiteId = $('#auto-translator-target-site').val();
+                
+                $btn.addClass('loading').attr('disabled', true);
+                $('#auto-translator-status').hide();
+
+                Craft.postActionRequest('auto-translator/translate/element', {
+                    elementId: {{ element.id }},
+                    targetSiteId: targetSiteId
+                }, function(response, textStatus) {
+                    $btn.removeClass('loading').attr('disabled', false);
+                    if (textStatus === 'success' && response.success) {
+                        $('#auto-translator-status').text('Translation queued!').show();
+                    } else {
+                        Craft.cp.displayError(response.error || 'Failed to trigger translation.');
+                    }
+                });
+            });
+        });
+    {% endjs %}
+{% endif %}

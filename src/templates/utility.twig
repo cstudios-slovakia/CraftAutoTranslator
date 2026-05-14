@@ -1,0 +1,37 @@
+{% extends "_layouts/utility" %}
+{% import "_includes/forms" as forms %}
+
+{% block content %}
+    <h2>{{ "Translate Site"|t('auto-translator') }}</h2>
+    <p>{{ "Mass translate elements from one site to another."|t('auto-translator') }}</p>
+
+    <form method="post" accept-charset="UTF-8">
+        {{ csrfInput() }}
+        {{ actionInput('auto-translator/translate/site') }}
+
+        {{ forms.selectField({
+            label: "Source Site"|t('auto-translator'),
+            id: 'sourceSiteId',
+            name: 'sourceSiteId',
+            options: siteOptions,
+        }) }}
+
+        {{ forms.selectField({
+            label: "Target Site"|t('auto-translator'),
+            id: 'targetSiteId',
+            name: 'targetSiteId',
+            options: siteOptions,
+        }) }}
+
+        {{ forms.selectField({
+            label: "Element Type"|t('auto-translator'),
+            id: 'elementType',
+            name: 'elementType',
+            options: elementTypes,
+        }) }}
+
+        <div class="buttons">
+            <input type="submit" class="btn submit" value="{{ 'Start Translation'|t('auto-translator') }}">
+        </div>
+    </form>
+{% endblock %}

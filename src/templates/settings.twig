@@ -1,0 +1,20 @@
+{% import "_includes/forms" as forms %}
+
+{{ forms.textField({
+    first: true,
+    label: "OpenAI API Key"|t('auto-translator'),
+    instructions: "Enter your OpenAI API key."|t('auto-translator'),
+    id: 'openaiApiKey',
+    name: 'openaiApiKey',
+    value: settings.openaiApiKey,
+    errors: settings.getErrors('openaiApiKey'),
+}) }}
+
+{{ forms.lightswitchField({
+    label: "Enable Auto Translation"|t('auto-translator'),
+    instructions: "Automatically translate entries upon creation."|t('auto-translator'),
+    id: 'enableAutoTranslation',
+    name: 'enableAutoTranslation',
+    on: settings.enableAutoTranslation,
+    errors: settings.getErrors('enableAutoTranslation'),
+}) }}
