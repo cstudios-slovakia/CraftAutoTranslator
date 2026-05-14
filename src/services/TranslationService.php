@@ -126,6 +126,12 @@ class TranslationService extends Component
         foreach ($translatedFields as $key => $value) {
             if ($key === 'title') {
                 $element->title = $value;
+                try {
+                    $element->setFieldValue('title', $value);
+                } catch (\Throwable $e) {
+                    // Ignore if it's not a custom field
+                }
+                $element->slug = ''; // Force Craft to regenerate the slug based on the new title
                 continue;
             }
 
