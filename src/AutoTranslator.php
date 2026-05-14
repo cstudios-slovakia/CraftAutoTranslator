@@ -93,33 +93,40 @@ class AutoTranslator extends Plugin
             return $this->_renderSidebarButton($context['element'] ?? $context['entry'] ?? null);
         });
         
-        // Fallback JS injection for any element edit page (Craft 5 URL structures)
+        // Fallback JS injection for any element edit page (Craft 5 URL structures & Vue apps like Calendar)
         Event::on(View::class, View::EVENT_END_BODY, function(\yii\base\Event $event) {
             $request = Craft::$app->getRequest();
             if ($request->getIsCpRequest() && !$request->getIsConsoleRequest() && !$request->getIsAjax()) {
                 $path = $request->getPathInfo();
                 
-                // Try to extract element ID from path (e.g., entries/section/123-slug, calendar/events/123)
-                if (preg_match('/(?:entries|products|events)\/(?:[^\/]+\/)?(\d+)(?:-[^\/]*)?$/', $path, $matches) || 
-                    preg_match('/elements\/edit\/(\d+)/', $path, $matches)) {
-                    
+                // Broadly match any CP path that ends with an ID (e.g., calendar/events/1670)
+                if (preg_match('/\/(\d+)(?:-[^\/]+)?$/', $path, $matches)) {
                     $eventId = $matches[1];
                     if (is_numeric($eventId)) {
                         $eventElement = Craft::$app->getElements()->getElementById($eventId);
                         static $rendered = false;
-                        if ($eventElement && !$rendered) {
+                        
+                        // Ensure it's a translatable element with supported sites
+                        if ($eventElement && method_exists($eventElement, 'getSupportedSites') && !$rendered) {
                             $rendered = true;
                             $buttonHtml = $this->_renderSidebarButton($eventElement);
                             
                             echo "<div id='auto-translator-injected' style='display:none;'>{$buttonHtml}</div>";
                             echo "<script>
-                                setTimeout(function() {
-                                    var \$sidebar = $('#details, #settings, .meta');
-                                    if (\$sidebar.length > 0 && $('#auto-translator-sidebar').length === 0) {
-                                        var html = $('#auto-translator-injected').html();
-                                        \$sidebar.first().append(html);
-                                    }
-                                }, 500);
+                                (function() {
+                                    var maxTries = 20;
+                                    var tries = 0;
+                                    var injectInterval = setInterval(function() {
+                                        var \$sidebar = $('#details, #settings, .meta, #sidebar, .sidebar, .layout-sidebar');
+                                        if (\$sidebar.length > 0 && $('#auto-translator-sidebar').length === 0) {
+                                            var html = $('#auto-translator-injected').html();
+                                            \$sidebar.first().append(html);
+                                            clearInterval(injectInterval);
+                                        }
+                                        tries++;
+                                        if (tries >= maxTries) clearInterval(injectInterval);
+                                    }, 500);
+                                })();
                             </script>";
                         }
                     }
