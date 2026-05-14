@@ -1,26 +1,20 @@
 {% set sites = craft.app.sites.allSites %}
 {% if sites|length > 1 %}
-    {% set targetOptions = [] %}
-    {% set targetOptions = targetOptions|merge([{label: "All Sites", value: "all"}]) %}
-    {% for site in sites %}
-        {% if site.id != element.siteId %}
-            {% set targetOptions = targetOptions|merge([{label: site.name, value: site.id}]) %}
-        {% endif %}
-    {% endfor %}
-
     <div id="auto-translator-sidebar" class="meta" style="margin-top: 20px; border-top: 1px solid rgba(0, 0, 0, 0.1); padding-top: 20px;">
         <div class="data">
             <h5 class="heading">Auto Translator</h5>
-            <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
-                <select id="auto-translator-target-site" class="select" style="width: 100%;">
-                    {% for option in targetOptions %}
-                        <option value="{{ option.value }}">{{ option.label }}</option>
-                    {% endfor %}
-                </select>
-                <button type="button" class="btn" id="auto-translator-trigger-btn">
-                    Translate
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+                <button type="button" class="btn submit auto-translator-trigger-btn" data-target="all" style="width: 100%; justify-content: center;">
+                    Translate to All Sites
                 </button>
-                <div id="auto-translator-status" style="font-size: 12px; color: green; display: none;">Queued!</div>
+                {% for site in sites %}
+                    {% if site.id != element.siteId %}
+                        <button type="button" class="btn auto-translator-trigger-btn" data-target="{{ site.id }}" style="width: 100%; justify-content: center; border-color: #2782c3; color: #2782c3;">
+                            Translate to {{ site.name }}
+                        </button>
+                    {% endif %}
+                {% endfor %}
+                <div id="auto-translator-status" style="font-size: 12px; color: green; display: none; text-align: center;">Queued!</div>
             </div>
         </div>
     </div>
@@ -35,10 +29,11 @@
                 $sidebar.append($('#auto-translator-sidebar'));
             }
 
-            $('#auto-translator-trigger-btn').on('click', function(e) {
+            $('.auto-translator-trigger-btn').on('click', function(e) {
                 e.preventDefault();
                 var $btn = $(this);
-                var targetSiteId = $('#auto-translator-target-site').val();
+                var targetSiteId = $btn.data('target');
+                var originalText = $btn.text();
                 
                 $btn.addClass('loading').attr('disabled', true);
                 $('#auto-translator-status').hide();
@@ -50,6 +45,7 @@
                     $btn.removeClass('loading').attr('disabled', false);
                     if (textStatus === 'success' && response.success) {
                         $('#auto-translator-status').text('Translation queued!').show();
+                        setTimeout(function() { $('#auto-translator-status').fadeOut(); }, 3000);
                     } else {
                         Craft.cp.displayError(response.error || 'Failed to trigger translation.');
                     }
