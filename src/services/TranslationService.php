@@ -59,7 +59,7 @@ class TranslationService extends Component
         $supportedSites = $element->getSupportedSites();
         
         foreach ($supportedSites as $supportedSite) {
-            $siteId = $supportedSite['siteId'];
+            $siteId = is_numeric($supportedSite) ? $supportedSite : (is_object($supportedSite) ? $supportedSite->siteId : $supportedSite['siteId']);
             if ($siteId == $sourceSite->id) {
                 continue;
             }

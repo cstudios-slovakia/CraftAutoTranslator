@@ -36,8 +36,9 @@ class TranslateController extends Controller
         $targetSiteIds = [];
         if ($targetSiteId === 'all' || !$targetSiteId) {
             foreach ($element->getSupportedSites() as $supportedSite) {
-                if ($supportedSite['siteId'] != $sourceSiteId) {
-                    $targetSiteIds[] = $supportedSite['siteId'];
+                $siteId = is_numeric($supportedSite) ? $supportedSite : (is_object($supportedSite) ? $supportedSite->siteId : $supportedSite['siteId']);
+                if ($siteId != $sourceSiteId) {
+                    $targetSiteIds[] = $siteId;
                 }
             }
         } else {
