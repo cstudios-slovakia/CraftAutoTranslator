@@ -32,7 +32,7 @@ class AutoTranslator extends Plugin
             'openai' => OpenAiService::class,
         ]);
 
-        $fileTarget = new \craft\log\FileTarget([
+        $fileTarget = new \yii\log\FileTarget([
             'logFile' => Craft::getAlias('@storage/logs/auto-translator.log'),
             'categories' => ['cstudios\autotranslator\*', 'auto-translator'],
         ]);
