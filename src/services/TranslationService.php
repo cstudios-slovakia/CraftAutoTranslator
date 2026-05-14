@@ -170,11 +170,20 @@ class TranslationService extends Component
             // because the blocks themselves might have translatable fields in different sites!
             if ($value instanceof \craft\elements\db\ElementQueryInterface) {
                 $blocks = $value->all();
+            } elseif (is_iterable($value)) {
+                $blocks = $value;
+            } else {
+                $blocks = null;
+            }
+
+            if ($blocks !== null && (is_array($blocks) || $blocks instanceof \Traversable) && (empty($blocks) || current((array)$blocks) instanceof \craft\base\ElementInterface)) {
                 $blockData = [];
                 foreach ($blocks as $block) {
-                    $blockFields = $this->_getTranslatableFields($block);
-                    if (!empty($blockFields)) {
-                        $blockData[$block->id] = $blockFields;
+                    if ($block instanceof \craft\base\ElementInterface) {
+                        $blockFields = $this->_getTranslatableFields($block);
+                        if (!empty($blockFields)) {
+                            $blockData[$block->id] = $blockFields;
+                        }
                     }
                 }
                 if (!empty($blockData)) {
@@ -184,6 +193,11 @@ class TranslationService extends Component
                 // For non-element fields, only translate if they are set to be translatable
                 if (is_string($value) && !empty($value)) {
                     $fieldsToTranslate[$field->handle] = $value;
+                } elseif (is_object($value) && method_exists($value, '__toString')) {
+                    $strValue = (string)$value;
+                    if (!empty($strValue)) {
+                        $fieldsToTranslate[$field->handle] = $strValue;
+                    }
                 } elseif (is_array($value)) {
                     $fieldsToTranslate[$field->handle] = $value;
                 }
@@ -192,8 +206,13 @@ class TranslationService extends Component
 
         // Craft 5 handles titles dynamically, sometimes as a custom field, sometimes as a native property
         try {
-            if (isset($element->title) && !empty($element->title) && !isset($fieldsToTranslate['title'])) {
-                $fieldsToTranslate['title'] = $element->title;
+            $titleValue = $element->title ?? null;
+            if ($titleValue && !isset($fieldsToTranslate['title'])) {
+                $strTitle = is_object($titleValue) && method_exists($titleValue, '__toString') ? (string)$titleValue : (is_string($titleValue) ? $titleValue : null);
+                if (!empty($strTitle)) {
+                    $fieldsToTranslate['title'] = $strTitle;
+                    Craft::info("Extracted title: " . $strTitle, 'auto-translator');
+                }
             }
         } catch (\Throwable $e) {
             // Ignore if title doesn't exist on this element type
