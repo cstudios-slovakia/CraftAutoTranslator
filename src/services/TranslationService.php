@@ -76,9 +76,6 @@ class TranslationService extends Component
         }
     }
 
-    /**
-     * Translates an element from source site to target site.
-     */
     public function translateElement(int $elementId, int $sourceSiteId, int $targetSiteId)
     {
         $sourceElement = Craft::$app->getElements()->getElementById($elementId, null, $sourceSiteId);
@@ -103,12 +100,41 @@ class TranslationService extends Component
         $translatedFields = AutoTranslator::$plugin->openai->translate($fields, $sourceLanguage, $targetLanguage);
 
         if ($translatedFields) {
-            $targetElement->setFieldValues($translatedFields);
-            $targetElement->setScenario(ElementInterface::SCENARIO_LIVE);
-            return Craft::$app->getElements()->saveElement($targetElement);
+            return $this->_applyTranslatedFields($targetElement, $translatedFields, $targetSiteId);
         }
 
         return false;
+    }
+
+    private function _applyTranslatedFields(ElementInterface $element, array $translatedFields, int $targetSiteId): bool
+    {
+        $regularFields = [];
+        
+        foreach ($translatedFields as $key => $value) {
+            if ($key === 'title') {
+                $element->title = $value;
+                continue;
+            }
+
+            // If it's an array and keys are numeric (block IDs), it's a matrix/nested field
+            if (is_array($value) && !empty($value) && is_numeric(array_key_first($value))) {
+                foreach ($value as $blockId => $blockFields) {
+                    $blockElement = Craft::$app->getElements()->getElementById((int)$blockId, null, $targetSiteId);
+                    if ($blockElement) {
+                        $this->_applyTranslatedFields($blockElement, $blockFields, $targetSiteId);
+                    }
+                }
+            } else {
+                $regularFields[$key] = $value;
+            }
+        }
+
+        if (!empty($regularFields)) {
+            $element->setFieldValues($regularFields);
+        }
+
+        $element->setScenario(ElementInterface::SCENARIO_LIVE);
+        return Craft::$app->getElements()->saveElement($element);
     }
 
     private function _getTranslatableFields(ElementInterface $element): array
@@ -121,22 +147,30 @@ class TranslationService extends Component
         }
 
         foreach ($fieldLayout->getCustomFields() as $field) {
-            // Check if field is translatable (different per site)
             if ($field->translationMethod !== 'none') {
                 $value = $element->getFieldValue($field->handle);
                 
-                // For simplicity, handle basic string fields or arrays. 
-                // More complex fields (Matrix) need specific normalization, 
-                // but since we rely on JSON preservation with OpenAI, we can try to pass raw or serialized data.
                 if (is_string($value) && !empty($value)) {
                     $fieldsToTranslate[$field->handle] = $value;
+                } elseif ($value instanceof \craft\elements\db\ElementQueryInterface) {
+                    $blocks = $value->all();
+                    $blockData = [];
+                    foreach ($blocks as $block) {
+                        $blockFields = $this->_getTranslatableFields($block);
+                        if (!empty($blockFields)) {
+                            $blockData[$block->id] = $blockFields;
+                        }
+                    }
+                    if (!empty($blockData)) {
+                        $fieldsToTranslate[$field->handle] = $blockData;
+                    }
                 } elseif (is_array($value)) {
+                    // Check if it's not a nested block structure
                     $fieldsToTranslate[$field->handle] = $value;
                 }
             }
         }
 
-        // Also check native title
         if ($element instanceof Entry || $element instanceof Product || $element instanceof \Solspace\Calendar\Elements\Event) {
             if ($element->title) {
                 $fieldsToTranslate['title'] = $element->title;
