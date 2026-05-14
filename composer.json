@@ -1,5 +1,5 @@
 {
-  "name": "cstudios/craft-auto-translator",
+  "name": "cstudios-slovakia/craft-auto-translator",
   "description": "Auto translate entries, commerce products, and solspace calendar events using OpenAI.",
   "type": "craft-plugin",
   "version": "1.0.0",
