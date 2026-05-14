@@ -146,7 +146,7 @@ class TranslationService extends Component
             $element->setFieldValues($regularFields);
         }
 
-        $element->setScenario(ElementInterface::SCENARIO_LIVE);
+        $element->setScenario(\craft\base\Element::SCENARIO_LIVE);
         return Craft::$app->getElements()->saveElement($element);
     }
 
