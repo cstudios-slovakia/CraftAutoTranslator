@@ -79,36 +79,45 @@ class AutoTranslator extends Plugin
             }
         );
         
-        // Hook into Edit templates to add sidebar button
+        // Hook into Edit templates to add sidebar button (Craft 3/4)
         Craft::$app->getView()->hook('cp.entries.edit.details', function(array &$context) {
-            return $this->_renderSidebarButton($context['entry'] ?? null);
+            return $this->_renderSidebarButton($context['entry'] ?? $context['element'] ?? null);
         });
 
         Craft::$app->getView()->hook('cp.commerce.product.edit.details', function(array &$context) {
-            return $this->_renderSidebarButton($context['product'] ?? null);
+            return $this->_renderSidebarButton($context['product'] ?? $context['element'] ?? null);
         });
         
-        // For Calendar Events, inject manually if specific hook is missing
+        // Craft 5 generic element edit hook
+        Craft::$app->getView()->hook('cp.elements.edit.details', function(array &$context) {
+            return $this->_renderSidebarButton($context['element'] ?? $context['entry'] ?? null);
+        });
+        
+        // Fallback JS injection for any element edit page (Craft 5 URL structures)
         Event::on(View::class, View::EVENT_END_BODY, function(\yii\base\Event $event) {
             $request = Craft::$app->getRequest();
             if ($request->getIsCpRequest() && !$request->getIsConsoleRequest() && !$request->getIsAjax()) {
                 $path = $request->getPathInfo();
-                if (str_contains($path, 'calendar/events/') && !str_contains($path, 'new')) {
-                    // It's a calendar event edit page, we can try extracting element ID from URL
-                    $parts = explode('/', $path);
-                    $eventId = end($parts);
+                
+                // Try to extract element ID from path (e.g., entries/section/123-slug, calendar/events/123)
+                if (preg_match('/(?:entries|products|events)\/(?:[^\/]+\/)?(\d+)(?:-[^\/]*)?$/', $path, $matches) || 
+                    preg_match('/elements\/edit\/(\d+)/', $path, $matches)) {
+                    
+                    $eventId = $matches[1];
                     if (is_numeric($eventId)) {
                         $eventElement = Craft::$app->getElements()->getElementById($eventId);
-                        if ($eventElement) {
+                        if ($eventElement && !isset(Craft::$app->getView()->getTwig()->getGlobals()['autoTranslatorSidebarRendered'])) {
                             $buttonHtml = $this->_renderSidebarButton($eventElement);
-                            // We can render a JS snippet to inject it
+                            // Prevent duplicate rendering
+                            Craft::$app->getView()->getTwig()->addGlobal('autoTranslatorSidebarRendered', true);
+                            
                             echo "<div id='auto-translator-injected' style='display:none;'>{$buttonHtml}</div>";
                             echo "<script>
                                 setTimeout(function() {
-                                    var \$sidebar = $('#details, #settings');
-                                    if (\$sidebar.length > 0) {
+                                    var \$sidebar = $('#details, #settings, .meta');
+                                    if (\$sidebar.length > 0 && $('#auto-translator-sidebar').length === 0) {
                                         var html = $('#auto-translator-injected').html();
-                                        \$sidebar.append(html);
+                                        \$sidebar.first().append(html);
                                     }
                                 }, 500);
                             </script>";
