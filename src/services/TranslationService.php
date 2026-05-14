@@ -160,34 +160,43 @@ class TranslationService extends Component
         }
 
         foreach ($fieldLayout->getCustomFields() as $field) {
-            if ($field->translationMethod !== 'none') {
-                $value = $element->getFieldValue($field->handle);
-                
+            $value = $element->getFieldValue($field->handle);
+            $isTranslatable = $field->translationMethod !== 'none';
+            
+            // Log field information for debugging
+            Craft::info("Processing field: {$field->handle}, type: " . get_class($field) . ", translatable: " . ($isTranslatable ? 'yes' : 'no'), 'auto-translator');
+
+            // If it's a relation/matrix field, we MUST traverse it even if the relation itself is not translatable,
+            // because the blocks themselves might have translatable fields in different sites!
+            if ($value instanceof \craft\elements\db\ElementQueryInterface) {
+                $blocks = $value->all();
+                $blockData = [];
+                foreach ($blocks as $block) {
+                    $blockFields = $this->_getTranslatableFields($block);
+                    if (!empty($blockFields)) {
+                        $blockData[$block->id] = $blockFields;
+                    }
+                }
+                if (!empty($blockData)) {
+                    $fieldsToTranslate[$field->handle] = $blockData;
+                }
+            } elseif ($isTranslatable) {
+                // For non-element fields, only translate if they are set to be translatable
                 if (is_string($value) && !empty($value)) {
                     $fieldsToTranslate[$field->handle] = $value;
-                } elseif ($value instanceof \craft\elements\db\ElementQueryInterface) {
-                    $blocks = $value->all();
-                    $blockData = [];
-                    foreach ($blocks as $block) {
-                        $blockFields = $this->_getTranslatableFields($block);
-                        if (!empty($blockFields)) {
-                            $blockData[$block->id] = $blockFields;
-                        }
-                    }
-                    if (!empty($blockData)) {
-                        $fieldsToTranslate[$field->handle] = $blockData;
-                    }
                 } elseif (is_array($value)) {
-                    // Check if it's not a nested block structure
                     $fieldsToTranslate[$field->handle] = $value;
                 }
             }
         }
 
-        if ($element instanceof Entry || $element instanceof Product || $element instanceof \Solspace\Calendar\Elements\Event) {
-            if ($element->title) {
+        // Craft 5 handles titles dynamically, sometimes as a custom field, sometimes as a native property
+        try {
+            if (isset($element->title) && !empty($element->title) && !isset($fieldsToTranslate['title'])) {
                 $fieldsToTranslate['title'] = $element->title;
             }
+        } catch (\Throwable $e) {
+            // Ignore if title doesn't exist on this element type
         }
 
         return $fieldsToTranslate;
