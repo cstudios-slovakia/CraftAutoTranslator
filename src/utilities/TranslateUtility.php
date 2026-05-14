@@ -46,9 +46,20 @@ class TranslateUtility extends Utility
             $elementTypes[] = ['label' => 'Calendar Events', 'value' => '\Solspace\Calendar\Elements\Event'];
         }
 
+        $logFile = Craft::getAlias('@storage/logs/auto-translator.log');
+        $logs = '';
+        if (file_exists($logFile)) {
+            $lines = file($logFile);
+            $lastLines = array_slice($lines, -50);
+            $logs = implode('', $lastLines);
+        } else {
+            $logs = "No logs yet.";
+        }
+
         return Craft::$app->getView()->renderTemplate('auto-translator/utility', [
             'siteOptions' => $siteOptions,
             'elementTypes' => $elementTypes,
+            'logs' => $logs,
         ]);
     }
 }

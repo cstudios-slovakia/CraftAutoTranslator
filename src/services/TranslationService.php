@@ -78,13 +78,17 @@ class TranslationService extends Component
 
     public function translateElement(int $elementId, int $sourceSiteId, int $targetSiteId)
     {
+        Craft::info("Starting translation for Element $elementId from Site $sourceSiteId to Site $targetSiteId", 'auto-translator');
+
         $sourceElement = Craft::$app->getElements()->getElementById($elementId, null, $sourceSiteId);
         if (!$sourceElement) {
+            Craft::error("Source element $elementId not found for Site $sourceSiteId", 'auto-translator');
             return false;
         }
 
         $targetElement = Craft::$app->getElements()->getElementById($elementId, null, $targetSiteId);
         if (!$targetElement) {
+            Craft::error("Target element $elementId not found for Site $targetSiteId", 'auto-translator');
             return false;
         }
 
@@ -92,17 +96,26 @@ class TranslationService extends Component
         $targetLanguage = Craft::$app->getSites()->getSiteById($targetSiteId)->language;
 
         $fields = $this->_getTranslatableFields($sourceElement);
+        Craft::info("Extracted translatable fields: " . json_encode($fields), 'auto-translator');
         
         if (empty($fields)) {
+            Craft::info("No translatable fields found for element $elementId", 'auto-translator');
             return true;
         }
 
         $translatedFields = AutoTranslator::$plugin->openai->translate($fields, $sourceLanguage, $targetLanguage);
+        Craft::info("Translated fields received: " . json_encode($translatedFields), 'auto-translator');
 
         if ($translatedFields) {
-            return $this->_applyTranslatedFields($targetElement, $translatedFields, $targetSiteId);
+            $success = $this->_applyTranslatedFields($targetElement, $translatedFields, $targetSiteId);
+            Craft::info("Apply translated fields success: " . ($success ? 'Yes' : 'No'), 'auto-translator');
+            if (!$success && $targetElement->hasErrors()) {
+                Craft::error("Validation errors on save: " . json_encode($targetElement->getErrors()), 'auto-translator');
+            }
+            return $success;
         }
 
+        Craft::error("Translation returned empty/null for element $elementId", 'auto-translator');
         return false;
     }
 
