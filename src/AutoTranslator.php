@@ -106,10 +106,10 @@ class AutoTranslator extends Plugin
                     $eventId = $matches[1];
                     if (is_numeric($eventId)) {
                         $eventElement = Craft::$app->getElements()->getElementById($eventId);
-                        if ($eventElement && !isset(Craft::$app->getView()->getTwig()->getGlobals()['autoTranslatorSidebarRendered'])) {
+                        static $rendered = false;
+                        if ($eventElement && !$rendered) {
+                            $rendered = true;
                             $buttonHtml = $this->_renderSidebarButton($eventElement);
-                            // Prevent duplicate rendering
-                            Craft::$app->getView()->getTwig()->addGlobal('autoTranslatorSidebarRendered', true);
                             
                             echo "<div id='auto-translator-injected' style='display:none;'>{$buttonHtml}</div>";
                             echo "<script>
