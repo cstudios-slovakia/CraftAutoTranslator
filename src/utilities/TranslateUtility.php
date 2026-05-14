@@ -50,7 +50,7 @@ class TranslateUtility extends Utility
         $logs = '';
         if (file_exists($logFile)) {
             $lines = file($logFile);
-            $lastLines = array_slice($lines, -50);
+            $lastLines = array_slice($lines, -150);
             $logs = implode('', $lastLines);
         } else {
             $logs = "No logs yet.";

@@ -35,6 +35,7 @@ class AutoTranslator extends Plugin
         $fileTarget = new \yii\log\FileTarget([
             'logFile' => Craft::getAlias('@storage/logs/auto-translator.log'),
             'categories' => ['cstudios\autotranslator\*', 'auto-translator'],
+            'logVars' => [],
         ]);
         Craft::getLogger()->dispatcher->targets[] = $fileTarget;
 
