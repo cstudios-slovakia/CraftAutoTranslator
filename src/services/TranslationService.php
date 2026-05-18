@@ -202,9 +202,38 @@ class TranslationService extends Component
         foreach ($fieldLayout->getCustomFields() as $field) {
             $value = $element->getFieldValue($field->handle);
             $isTranslatable = $field->translationMethod !== 'none';
-            
+
             // Log field information for debugging
             Craft::info("Processing field: {$field->handle}, type: " . get_class($field) . ", translatable: " . ($isTranslatable ? 'yes' : 'no'), 'auto-translator');
+
+            // Handle ether/seo SeoField — SeoData is an object that doesn't stringify,
+            // so we extract the user-editable parts (titleRaw, descriptionRaw) explicitly.
+            if (class_exists('\ether\seo\fields\SeoField')
+                && $field instanceof \ether\seo\fields\SeoField
+                && $value instanceof \ether\seo\models\data\SeoData
+            ) {
+                $seoData = [];
+
+                $titleRaw = $value->titleRaw;
+                if (is_array($titleRaw) && !empty($titleRaw)) {
+                    $editableParts = array_filter($titleRaw, fn($v) => is_string($v) && $v !== '');
+                    if (!empty($editableParts)) {
+                        $seoData['titleRaw'] = $editableParts;
+                    }
+                } elseif (is_string($titleRaw) && $titleRaw !== '') {
+                    $seoData['titleRaw'] = $titleRaw;
+                }
+
+                if (!empty($value->descriptionRaw) && is_string($value->descriptionRaw)) {
+                    $seoData['descriptionRaw'] = $value->descriptionRaw;
+                }
+
+                if (!empty($seoData)) {
+                    $fieldsToTranslate[$field->handle] = $seoData;
+                    Craft::info("Extracted SEO fields for {$field->handle}: " . json_encode($seoData), 'auto-translator');
+                }
+                continue;
+            }
 
             // If it's a relation/matrix field, we MUST traverse it even if the relation itself is not translatable,
             // because the blocks themselves might have translatable fields in different sites!
