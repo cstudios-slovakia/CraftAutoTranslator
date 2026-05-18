@@ -242,45 +242,41 @@ class TranslationService extends Component
     {
         $methodNone = \craft\base\Field::TRANSLATION_METHOD_NONE;
 
-        // Entries: the entry type carries titleTranslationMethod
-        if (method_exists($element, 'getType')) {
-            try {
-                $type = $element->getType();
-                if ($type && isset($type->titleTranslationMethod)) {
-                    return $type->titleTranslationMethod !== $methodNone;
+        // Probe the usual containers for a titleTranslationMethod property.
+        // We default to TRUE (translatable) and only opt out when we explicitly
+        // find translationMethod === 'none'. This avoids accidentally skipping
+        // title translation just because we can't find the property on a
+        // third-party element type's model.
+        $containers = [];
+        foreach (['getType', 'getCalendar', 'getGroup', 'getSection'] as $getter) {
+            if (method_exists($element, $getter)) {
+                try {
+                    $obj = $element->$getter();
+                    if ($obj) {
+                        $containers[] = $obj;
+                    }
+                } catch (\Throwable $e) {
+                    // skip
                 }
-            } catch (\Throwable $e) {
-                // fall through
             }
         }
 
-        // Solspace Calendar events: title settings live on the Calendar model
-        if (method_exists($element, 'getCalendar')) {
-            try {
-                $cal = $element->getCalendar();
-                if ($cal && isset($cal->titleTranslationMethod)) {
-                    return $cal->titleTranslationMethod !== $methodNone;
+        foreach ($containers as $container) {
+            // Use property_exists so we read the value even when it's null,
+            // then only treat 'none' as a definitive opt-out.
+            if (property_exists($container, 'titleTranslationMethod')) {
+                $method = $container->titleTranslationMethod ?? null;
+                if ($method === $methodNone) {
+                    return false;
                 }
-            } catch (\Throwable $e) {
-                // fall through
+                if ($method !== null) {
+                    return true;
+                }
             }
         }
 
-        // Categories
-        if (method_exists($element, 'getGroup')) {
-            try {
-                $group = $element->getGroup();
-                if ($group && isset($group->titleTranslationMethod)) {
-                    return $group->titleTranslationMethod !== $methodNone;
-                }
-            } catch (\Throwable $e) {
-                // fall through
-            }
-        }
-
-        // Default: assume not translatable, to avoid accidentally overwriting
-        // other sites for element types we don't know how to inspect.
-        return false;
+        // Couldn't determine — assume translatable.
+        return true;
     }
 
     private function _getTranslatableFields(ElementInterface $element): array
