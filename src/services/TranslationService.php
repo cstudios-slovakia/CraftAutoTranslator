@@ -233,6 +233,56 @@ class TranslationService extends Component
         return false;
     }
 
+    /**
+     * Determine whether this element's native `title` is stored per-site.
+     * If it isn't (translationMethod = 'none'), writing the title on one site
+     * will overwrite all other sites — so we must not translate it.
+     */
+    private function _isTitleSiteTranslatable(ElementInterface $element): bool
+    {
+        $methodNone = \craft\base\Field::TRANSLATION_METHOD_NONE;
+
+        // Entries: the entry type carries titleTranslationMethod
+        if (method_exists($element, 'getType')) {
+            try {
+                $type = $element->getType();
+                if ($type && isset($type->titleTranslationMethod)) {
+                    return $type->titleTranslationMethod !== $methodNone;
+                }
+            } catch (\Throwable $e) {
+                // fall through
+            }
+        }
+
+        // Solspace Calendar events: title settings live on the Calendar model
+        if (method_exists($element, 'getCalendar')) {
+            try {
+                $cal = $element->getCalendar();
+                if ($cal && isset($cal->titleTranslationMethod)) {
+                    return $cal->titleTranslationMethod !== $methodNone;
+                }
+            } catch (\Throwable $e) {
+                // fall through
+            }
+        }
+
+        // Categories
+        if (method_exists($element, 'getGroup')) {
+            try {
+                $group = $element->getGroup();
+                if ($group && isset($group->titleTranslationMethod)) {
+                    return $group->titleTranslationMethod !== $methodNone;
+                }
+            } catch (\Throwable $e) {
+                // fall through
+            }
+        }
+
+        // Default: assume not translatable, to avoid accidentally overwriting
+        // other sites for element types we don't know how to inspect.
+        return false;
+    }
+
     private function _getTranslatableFields(ElementInterface $element): array
     {
         $fieldsToTranslate = [];
@@ -317,10 +367,13 @@ class TranslationService extends Component
             }
         }
 
-        // Craft 5 handles titles dynamically, sometimes as a custom field, sometimes as a native property
+        // Craft 5 handles titles dynamically, sometimes as a custom field, sometimes as a native property.
+        // Only extract the title if it's actually site-translatable — otherwise saving it on one site
+        // will propagate the translated value to all other sites (Solspace Calendar defaults to
+        // a non-translatable title, so a SK translation would overwrite the HU title and vice versa).
         try {
             $titleValue = $element->title ?? null;
-            if ($titleValue && !isset($fieldsToTranslate['title'])) {
+            if ($titleValue && !isset($fieldsToTranslate['title']) && $this->_isTitleSiteTranslatable($element)) {
                 $strTitle = is_object($titleValue) && method_exists($titleValue, '__toString') ? (string)$titleValue : (is_string($titleValue) ? $titleValue : null);
                 if (!empty($strTitle)) {
                     $fieldsToTranslate['title'] = $strTitle;
