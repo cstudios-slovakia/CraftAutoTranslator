@@ -229,8 +229,9 @@ class TranslationService extends Component
                 if (!empty($blockData)) {
                     $fieldsToTranslate[$field->handle] = $blockData;
                 }
-            } elseif ($isTranslatable) {
-                // For non-element fields, only translate if they are set to be translatable
+            } elseif ($isTranslatable || $field instanceof \craft\fields\Table) {
+                // Always include Table fields even when translationMethod = 'none',
+                // because their rows contain text content that needs translation.
                 if (is_string($value) && !empty($value)) {
                     $fieldsToTranslate[$field->handle] = $value;
                 } elseif (is_object($value) && method_exists($value, '__toString')) {
@@ -238,7 +239,7 @@ class TranslationService extends Component
                     if (!empty($strValue)) {
                         $fieldsToTranslate[$field->handle] = $strValue;
                     }
-                } elseif (is_array($value)) {
+                } elseif (is_array($value) && !empty($value)) {
                     $fieldsToTranslate[$field->handle] = $value;
                 }
             }
