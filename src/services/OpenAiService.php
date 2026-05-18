@@ -39,7 +39,10 @@ class OpenAiService extends Component
                 $langInstruction = "auto-detect the source language of each text value and translate it to the target language '$targetLanguage'";
             }
 
-            $systemPrompt = "You are a professional translator. You will receive a JSON object representing fields of a CMS entry. Your task is to $langInstruction. Maintain the exact same JSON structure, keys, and any HTML formatting or tags. Only translate the textual content. IMPORTANT: If a value is too short, unclear, gibberish, a code snippet, or otherwise untranslatable, return the original value UNCHANGED. Never return explanations, apologies, or error messages — always return a valid JSON value for every key.";
+            $systemPrompt = "You are a professional translator. You will receive a JSON object representing fields of a CMS entry. Your task is to $langInstruction. Maintain the exact same JSON structure, keys, and any HTML formatting or tags. Only translate the textual content.\n\n"
+                . "ALWAYS attempt the translation. Translate every descriptive word, even when the text contains proper nouns, brand names, event names, dates, numbers, or place names — translate the descriptive/common-noun parts around them and keep the proper nouns, brand names, person names, and place names in their original form. For example 'Letný hudobný festival Pohoda 2025' → Hungarian: 'Pohoda 2025 nyári zenei fesztivál' (the brand 'Pohoda' and year stay, the surrounding words are translated).\n\n"
+                . "Only keep a value unchanged if it is literally a code snippet, a URL, a single number, an email address, or a slug-like token with no natural-language words. Titles, headings, names of events, and any phrase containing at least one common-language word MUST be translated. Never return the source text unchanged just because it contains a name.\n\n"
+                . "Never return explanations, apologies, refusals, or error messages — always return a valid translated JSON value for every key.";
 
             $response = $client->chat()->create([
                 'model' => 'gpt-4o',

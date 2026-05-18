@@ -24,14 +24,67 @@ class TranslateController extends Controller
     private function _runQueueAfterResponse(): void
     {
         Craft::$app->getResponse()->on(Response::EVENT_AFTER_SEND, function() {
+            // Detach from the client BEFORE doing the slow queue work, so the
+            // browser sees our JSON response instantly. Without a working
+            // detach (FastCGI/LiteSpeed), the OpenAI call blocks the response
+            // and the UI sits silent for ~7s after a click.
+            $detached = false;
             try {
-                if (function_exists('fastcgi_finish_request')) {
+                if (function_exists('litespeed_finish_request')) {
+                    @litespeed_finish_request();
+                    $detached = true;
+                } elseif (function_exists('fastcgi_finish_request')) {
                     @fastcgi_finish_request();
+                    $detached = true;
+                } else {
+                    // mod_php fallback: flush output buffers and close the
+                    // connection by sending Content-Length + Connection: close.
+                    @ignore_user_abort(true);
+                    while (ob_get_level() > 0) {
+                        @ob_end_flush();
+                    }
+                    @flush();
                 }
+            } catch (\Throwable $e) {
+                Craft::warning('Connection detach failed: ' . $e->getMessage(), 'auto-translator');
+            }
+
+            // If we couldn't detach, don't run the queue inline — it would
+            // block the client. Polling on queue-status will drive execution.
+            if (!$detached) {
+                return;
+            }
+
+            try {
                 @set_time_limit(300);
                 Craft::$app->getQueue()->run();
             } catch (\Throwable $e) {
                 Craft::error('Inline queue run failed: ' . $e->getMessage(), 'auto-translator');
+            }
+        });
+    }
+
+    /**
+     * Best-effort: if jobs are sitting in the queue and we can detach from
+     * the client, run them. Called from the polling endpoint so a stuck
+     * queue gets nudged even on hosts where the POST handler couldn't
+     * detach (e.g. mod_php with output buffering).
+     */
+    private function _nudgeQueueAfterResponse(): void
+    {
+        Craft::$app->getResponse()->on(Response::EVENT_AFTER_SEND, function() {
+            try {
+                if (function_exists('litespeed_finish_request')) {
+                    @litespeed_finish_request();
+                } elseif (function_exists('fastcgi_finish_request')) {
+                    @fastcgi_finish_request();
+                } else {
+                    return;
+                }
+                @set_time_limit(120);
+                Craft::$app->getQueue()->run();
+            } catch (\Throwable $e) {
+                Craft::warning('Queue nudge failed: ' . $e->getMessage(), 'auto-translator');
             }
         });
     }
@@ -174,6 +227,22 @@ class TranslateController extends Controller
                 ->where(['like', 'job', 'TranslateElementJob'])
                 ->andWhere(['fail' => false])
                 ->count();
+
+            // If there are pending jobs but nothing's been picked up yet
+            // (timeUpdated IS NULL on all rows), nudge the queue from this
+            // request so mod_php-style hosts where the POST couldn't detach
+            // still get the work executed.
+            if ($active > 0) {
+                $waiting = (int)(new \yii\db\Query())
+                    ->from($tableName)
+                    ->where(['like', 'job', 'TranslateElementJob'])
+                    ->andWhere(['fail' => false])
+                    ->andWhere(['timeUpdated' => null])
+                    ->count();
+                if ($waiting > 0) {
+                    $this->_nudgeQueueAfterResponse();
+                }
+            }
 
             $failed = (int)(new \yii\db\Query())
                 ->from($tableName)

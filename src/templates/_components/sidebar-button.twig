@@ -187,9 +187,13 @@
                         siteId: siteId
                     };
 
+                    // Show feedback immediately — on shared hosting the POST
+                    // can take several seconds to return because the queue
+                    // runs inline. Don't leave the user staring at nothing.
+                    Craft.cp.displayNotice('Translating to ' + siteNameForId(siteId) + '… working');
+
                     Craft.sendActionRequest('POST', 'auto-translator/translate/translate-in-place', { data: payload })
                         .then(function(response) {
-                            Craft.cp.displayNotice('Translation queued. Working…');
                             startPolling(siteNameForId(siteId));
                         })
                         .catch(function(err) {
@@ -217,15 +221,12 @@
                         targetSiteId: targetSiteId
                     };
 
+                    // Immediate feedback — POST can take several seconds on
+                    // shared hosting because the queue runs inline.
+                    Craft.cp.displayNotice('Translating to ' + siteName + '… working');
+
                     Craft.sendActionRequest('POST', 'auto-translator/translate/element', { data: payload })
                         .then(function(response) {
-                            var data = (response && response.data) || {};
-                            var count = data.jobCount || 1;
-                            var label = targetSiteId === 'all'
-                                ? count + (count === 1 ? ' job' : ' jobs')
-                                : '1 job';
-
-                            Craft.cp.displayNotice('Translation queued for ' + siteName + ' (' + label + '). Working…');
                             startPolling(siteName);
                         })
                         .catch(function(err) {
