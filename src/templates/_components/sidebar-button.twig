@@ -5,72 +5,95 @@
         <div class="data">
             <h5 class="heading">Auto Translator</h5>
             <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
-                <button type="button" class="btn submit auto-translator-trigger-btn" data-target="all" style="width: 100%; justify-content: center;">
+                <button type="button" class="btn submit auto-translator-trigger-btn" data-target="all" data-site-name="All Sites" style="width: 100%; justify-content: center;">
                     Translate to All Sites
                 </button>
                 {% for site in sites %}
                     {% if site.id != currentSiteId %}
-                        <button type="button" class="btn auto-translator-trigger-btn" data-target="{{ site.id }}" style="width: 100%; justify-content: center; border-color: #2782c3; color: #2782c3;">
+                        <button type="button" class="btn auto-translator-trigger-btn" data-target="{{ site.id }}" data-site-name="{{ site.name }}" style="width: 100%; justify-content: center; border-color: #2782c3; color: #2782c3;">
                             Translate to {{ site.name }}
                         </button>
                     {% endif %}
                 {% endfor %}
-                <div id="auto-translator-status" style="font-size: 12px; color: green; display: none; text-align: center;">Queued!</div>
             </div>
         </div>
     </div>
 
     {% js %}
-        $(document).ready(function() {
-            var $sidebar = $('#settings');
-            if ($sidebar.length === 0) {
-                $sidebar = $('#details'); // Fallback for some layouts
+        (function() {
+            var _pollInterval = null;
+
+            function stopPolling() {
+                if (_pollInterval) {
+                    clearInterval(_pollInterval);
+                    _pollInterval = null;
+                }
             }
-            if ($sidebar.length > 0) {
-                $sidebar.append($('#auto-translator-sidebar'));
-            }
 
-            $('.auto-translator-trigger-btn').on('click', function(e) {
-                e.preventDefault();
-                var $btn = $(this);
-                var targetSiteId = $btn.data('target');
+            function startPolling(siteName) {
+                stopPolling();
+                var polls = 0;
+                var maxPolls = 60; // 2 min timeout at 2s interval
 
-                $btn.addClass('loading').attr('disabled', true);
-                $('#auto-translator-status').hide();
+                _pollInterval = setInterval(function() {
+                    polls++;
 
-                var payload = {
-                    elementId: {{ element.id }},
-                    sourceSiteId: {{ currentSiteId }},
-                    targetSiteId: targetSiteId
-                };
+                    Craft.sendActionRequest('GET', 'auto-translator/translate/queue-status')
+                        .then(function(r) {
+                            var data = r.data || {};
+                            if (!data.running) {
+                                stopPolling();
+                                Craft.cp.displayNotice('Translation to ' + siteName + ' complete! Reloading…');
+                                setTimeout(function() { window.location.reload(); }, 1400);
+                            }
+                        })
+                        .catch(function() {
+                            // silent — queue status check errors are non-fatal
+                        });
 
-                var done = function(success, errorMsg) {
-                    $btn.removeClass('loading').attr('disabled', false);
-                    if (success) {
-                        $('#auto-translator-status').text('Translation queued!').show();
-                        setTimeout(function() { $('#auto-translator-status').fadeOut(); }, 3000);
-                    } else {
-                        Craft.cp.displayError(errorMsg || 'Failed to trigger translation.');
+                    if (polls >= maxPolls) {
+                        stopPolling();
+                        Craft.cp.displayNotice('Translation is still running in the background.');
                     }
-                };
+                }, 2000);
+            }
 
-                if (typeof Craft.sendActionRequest === 'function') {
+            $(document).ready(function() {
+                $('.auto-translator-trigger-btn').on('click', function(e) {
+                    e.preventDefault();
+                    var $btn = $(this);
+                    var targetSiteId = $btn.data('target');
+                    var siteName = $btn.data('site-name') || 'site';
+
+                    $('.auto-translator-trigger-btn').addClass('loading').attr('disabled', true);
+                    stopPolling();
+
+                    var payload = {
+                        elementId: {{ element.id }},
+                        sourceSiteId: {{ currentSiteId }},
+                        targetSiteId: targetSiteId
+                    };
+
                     Craft.sendActionRequest('POST', 'auto-translator/translate/element', { data: payload })
                         .then(function(response) {
-                            done(!!(response && response.data && response.data.success !== false), response && response.data && response.data.error);
+                            var data = (response && response.data) || {};
+                            var count = data.jobCount || 1;
+                            var label = targetSiteId === 'all'
+                                ? count + (count === 1 ? ' job' : ' jobs')
+                                : '1 job';
+
+                            Craft.cp.displayNotice('Translation queued for ' + siteName + ' (' + label + '). Working…');
+                            startPolling(siteName);
                         })
-                        .catch(function(e) {
-                            done(false, (e && e.response && e.response.data && e.response.data.error) || (e && e.message));
+                        .catch(function(err) {
+                            $('.auto-translator-trigger-btn').removeClass('loading').attr('disabled', false);
+                            var msg = (err && err.response && err.response.data && err.response.data.error)
+                                || (err && err.message)
+                                || 'Translation failed.';
+                            Craft.cp.displayError(msg);
                         });
-                } else if (typeof Craft.postActionRequest === 'function') {
-                    // Legacy fallback (Craft 3/early 4)
-                    Craft.postActionRequest('auto-translator/translate/element', payload, function(response, textStatus) {
-                        done(textStatus === 'success' && response && response.success, response && response.error);
-                    });
-                } else {
-                    done(false, 'Craft action request helper not available.');
-                }
+                });
             });
-        });
+        })();
     {% endjs %}
 {% endif %}

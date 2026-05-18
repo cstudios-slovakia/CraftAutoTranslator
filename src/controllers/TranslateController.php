@@ -64,7 +64,34 @@ class TranslateController extends Controller
             ]));
         }
 
-        return $this->asSuccess('Translation job(s) added to queue.');
+        return $this->asSuccess('Translation job(s) added to queue.', [
+            'jobCount' => count($targetSiteIds),
+        ]);
+    }
+
+    /**
+     * Returns whether any TranslateElementJobs are still pending in the queue.
+     * Used by the sidebar JS to poll for completion.
+     */
+    public function actionQueueStatus(): Response
+    {
+        $this->requireAcceptsJson();
+
+        try {
+            $queue = Craft::$app->getQueue();
+            $tableName = $queue->tableName ?? '{{%queue}}';
+
+            $pending = (int)(new \yii\db\Query())
+                ->from($tableName)
+                ->where(['like', 'job', 'TranslateElementJob'])
+                ->andWhere(['done_at' => null])
+                ->andWhere(['error' => null])
+                ->count();
+
+            return $this->asJson(['running' => $pending > 0, 'pending' => $pending]);
+        } catch (\Throwable $e) {
+            return $this->asJson(['running' => false, 'pending' => 0]);
+        }
     }
 
     /**
