@@ -39,35 +39,61 @@
             function startPolling(siteName) {
                 stopPolling();
                 var polls = 0;
-                var maxPolls = 90; // 3 min timeout at 2s interval
+                var consecutiveErrors = 0;
+                var sawRunning = false; // we want to confirm running was true at least once before deciding "done"
+                var maxPolls = 90;
 
-                _pollInterval = setInterval(function() {
+                function doPoll() {
                     polls++;
+                    console.log('[AutoTranslator] poll #' + polls + ' for ' + siteName);
 
                     Craft.sendActionRequest('GET', 'auto-translator/translate/queue-status')
                         .then(function(r) {
-                            var data = r.data || {};
-                            if (!data.running) {
-                                stopPolling();
-                                if (data.failed && data.failed > 0) {
-                                    Craft.cp.displayError('Translation failed. Check the Craft queue for details.');
-                                    enableAllButtons();
-                                } else {
-                                    Craft.cp.displayNotice('Translation to ' + siteName + ' complete! Reloading…');
-                                    setTimeout(function() { window.location.reload(); }, 1400);
-                                }
+                            consecutiveErrors = 0;
+                            var data = (r && r.data) || {};
+                            console.log('[AutoTranslator] poll result', data);
+
+                            if (data.running) {
+                                sawRunning = true;
+                                return;
+                            }
+
+                            // Not running. Only treat as "done" once we've confirmed the job was actually
+                            // running at some point — otherwise we might be polling before the job got picked up.
+                            if (!sawRunning && polls < 3) {
+                                return; // give it a few more polls to start
+                            }
+
+                            stopPolling();
+                            if (data.failed && data.failed > 0) {
+                                Craft.cp.displayError('Translation failed. Check the Craft queue for details.');
+                                enableAllButtons();
+                            } else {
+                                Craft.cp.displayNotice('Translation to ' + siteName + ' complete! Reloading…');
+                                setTimeout(function() { window.location.reload(); }, 1200);
                             }
                         })
-                        .catch(function() {
-                            // silent — queue status check errors are non-fatal
+                        .catch(function(err) {
+                            consecutiveErrors++;
+                            console.error('[AutoTranslator] queue-status poll failed (' + consecutiveErrors + ')', err);
+                            if (consecutiveErrors >= 3) {
+                                stopPolling();
+                                enableAllButtons();
+                                var status = err && err.response && err.response.status;
+                                Craft.cp.displayError('Cannot check translation status (HTTP ' + (status || '?') + '). Reload the page to see translated content.');
+                            }
                         });
 
                     if (polls >= maxPolls) {
                         stopPolling();
                         enableAllButtons();
-                        Craft.cp.displayNotice('Translation is still running in the background.');
+                        Craft.cp.displayNotice('Translation is still running in the background. Reload manually when ready.');
                     }
-                }, 2000);
+                }
+
+                // Poll once immediately, then on interval.
+                doPoll();
+                _pollInterval = setInterval(doPoll, 2000);
             }
 
             function disableAllButtons() {
