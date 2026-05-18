@@ -122,7 +122,7 @@ class TranslationService extends Component
     private function _applyTranslatedFields(ElementInterface $element, array $translatedFields, int $targetSiteId): bool
     {
         $regularFields = [];
-        
+
         foreach ($translatedFields as $key => $value) {
             if ($key === 'title') {
                 $element->title = $value;
@@ -131,21 +131,29 @@ class TranslationService extends Component
                 } catch (\Throwable $e) {
                     // Ignore if it's not a custom field
                 }
-                $element->slug = ''; // Force Craft to regenerate the slug based on the new title
+                $element->slug = '';
                 continue;
             }
 
-            // If it's an array and keys are numeric (block IDs), it's a matrix/nested field
-            if (is_array($value) && !empty($value) && is_numeric(array_key_first($value))) {
-                foreach ($value as $blockId => $blockFields) {
-                    $blockElement = Craft::$app->getElements()->getElementById((int)$blockId, null, $targetSiteId);
-                    if ($blockElement) {
-                        $this->_applyTranslatedFields($blockElement, $blockFields, $targetSiteId);
+            // Use field type to distinguish matrix blocks (keyed by element ID) from
+            // table fields (keyed by row index) — numeric key heuristic alone is unreliable.
+            if (is_array($value) && !empty($value)) {
+                $field = $this->_getFieldFromLayout($element, $key);
+                if ($field && $this->_isMatrixLikeField($field)) {
+                    foreach ($value as $blockId => $blockFields) {
+                        if (!is_numeric($blockId)) {
+                            continue;
+                        }
+                        $blockElement = Craft::$app->getElements()->getElementById((int)$blockId, null, $targetSiteId);
+                        if ($blockElement) {
+                            $this->_applyTranslatedFields($blockElement, $blockFields, $targetSiteId);
+                        }
                     }
+                    continue;
                 }
-            } else {
-                $regularFields[$key] = $value;
             }
+
+            $regularFields[$key] = $value;
         }
 
         if (!empty($regularFields)) {
@@ -154,6 +162,32 @@ class TranslationService extends Component
 
         $element->setScenario(\craft\base\Element::SCENARIO_LIVE);
         return Craft::$app->getElements()->saveElement($element);
+    }
+
+    private function _getFieldFromLayout(ElementInterface $element, string $handle): ?\craft\base\FieldInterface
+    {
+        $fieldLayout = $element->getFieldLayout();
+        if (!$fieldLayout) {
+            return null;
+        }
+        foreach ($fieldLayout->getCustomFields() as $field) {
+            if ($field->handle === $handle) {
+                return $field;
+            }
+        }
+        return null;
+    }
+
+    private function _isMatrixLikeField(\craft\base\FieldInterface $field): bool
+    {
+        if ($field instanceof \craft\fields\Matrix) {
+            return true;
+        }
+        // Neo field (community plugin)
+        if (class_exists('\benf\neo\Field') && $field instanceof \benf\neo\Field) {
+            return true;
+        }
+        return false;
     }
 
     private function _getTranslatableFields(ElementInterface $element): array
