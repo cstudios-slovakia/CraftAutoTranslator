@@ -142,13 +142,15 @@ class TranslationService extends Component
                 continue;
             }
 
-            // Use field type to distinguish matrix blocks (keyed by element ID) from
-            // table fields (keyed by row index) — numeric key heuristic alone is unreliable.
+            // Element-keyed arrays (matrix blocks, relation fields like Categories/Entries/Assets)
+            // must be traversed and saved on the sub-elements, never passed to setFieldValues()
+            // on the parent — relation fields expect ID arrays, not nested data structures.
+            // Table fields (row-indexed arrays) are NOT element fields and fall through to regularFields.
             if (is_array($value) && !empty($value)) {
                 $field = $this->_getFieldFromLayout($element, $key);
-                if ($field && $this->_isMatrixLikeField($field)) {
+                if ($field && $this->_isElementArrayField($field)) {
                     foreach ($value as $blockId => $blockFields) {
-                        if (!is_numeric($blockId)) {
+                        if (!is_numeric($blockId) || !is_array($blockFields)) {
                             continue;
                         }
                         $blockElement = Craft::$app->getElements()->getElementById((int)$blockId, null, $targetSiteId);
@@ -185,13 +187,19 @@ class TranslationService extends Component
         return null;
     }
 
-    private function _isMatrixLikeField(\craft\base\FieldInterface $field): bool
+    private function _isElementArrayField(\craft\base\FieldInterface $field): bool
     {
+        // Matrix and Neo store blocks as element-keyed arrays
         if ($field instanceof \craft\fields\Matrix) {
             return true;
         }
-        // Neo field (community plugin)
         if (class_exists('\benf\neo\Field') && $field instanceof \benf\neo\Field) {
+            return true;
+        }
+        // Relation fields (Categories, Entries, Assets, Tags, Users) also produce
+        // element-keyed arrays during extraction — they must never be written back
+        // to the parent via setFieldValues() as Craft expects plain ID arrays there.
+        if ($field instanceof \craft\fields\BaseRelationField) {
             return true;
         }
         return false;
