@@ -4,6 +4,7 @@ namespace cstudios\autotranslator\services;
 
 use Craft;
 use craft\base\Component;
+use craft\helpers\App;
 use cstudios\autotranslator\AutoTranslator;
 use OpenAI;
 
@@ -20,7 +21,7 @@ class OpenAiService extends Component
     public function translate(array $content, string $sourceLanguage, string $targetLanguage): ?array
     {
         $settings = AutoTranslator::$plugin->getSettings();
-        $apiKey = Craft::parseEnv($settings->openaiApiKey);
+        $apiKey = App::parseEnv($settings->openaiApiKey);
 
         if (empty($apiKey)) {
             Craft::error('OpenAI API key is missing.', __METHOD__);

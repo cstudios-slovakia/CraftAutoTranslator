@@ -23,15 +23,26 @@ class TranslateController extends Controller
         $this->requirePostRequest();
         $this->requireAcceptsJson();
 
-        $elementId = Craft::$app->getRequest()->getRequiredBodyParam('elementId');
-        $targetSiteId = Craft::$app->getRequest()->getBodyParam('targetSiteId'); // can be 'all'
-        
-        $element = Craft::$app->getElements()->getElementById($elementId);
+        $request = Craft::$app->getRequest();
+        $elementId = (int)$request->getRequiredBodyParam('elementId');
+        $targetSiteId = $request->getBodyParam('targetSiteId'); // can be 'all'
+        $sourceSiteIdParam = $request->getBodyParam('sourceSiteId');
+
+        $sourceSiteId = null;
+        if ($sourceSiteIdParam !== null && $sourceSiteIdParam !== '') {
+            $sourceSiteId = (int)$sourceSiteIdParam;
+        }
+
+        $element = Craft::$app->getElements()->getElementById($elementId, null, $sourceSiteId);
         if (!$element) {
             return $this->asFailure('Element not found.');
         }
 
-        $sourceSiteId = $element->siteId;
+        // If the caller didn't tell us the source site, fall back to whatever site
+        // the loaded element belongs to (Craft will have used the primary site).
+        if (!$sourceSiteId) {
+            $sourceSiteId = $element->siteId;
+        }
 
         $targetSiteIds = [];
         if ($targetSiteId === 'all' || !$targetSiteId) {

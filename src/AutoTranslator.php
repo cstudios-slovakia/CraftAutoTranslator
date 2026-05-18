@@ -18,7 +18,9 @@ use cstudios\autotranslator\utilities\TranslateUtility;
 
 class AutoTranslator extends Plugin
 {
-    public static ?AutoTranslator $plugin;
+    public static ?AutoTranslator $plugin = null;
+
+    private bool $sidebarRendered = false;
     public bool $hasCpSettings = true;
     public bool $hasCpSection = false;
 
@@ -87,30 +89,33 @@ class AutoTranslator extends Plugin
         Craft::$app->getView()->hook('cp.commerce.product.edit.details', function(array &$context) {
             return $this->_renderSidebarButton($context['product'] ?? $context['element'] ?? null);
         });
-        
+
         // Craft 5 generic element edit hook
         Craft::$app->getView()->hook('cp.elements.edit.details', function(array &$context) {
             return $this->_renderSidebarButton($context['element'] ?? $context['entry'] ?? null);
         });
-        
+
         // Fallback JS injection for any element edit page (Craft 5 URL structures & Vue apps like Calendar)
         Event::on(View::class, View::EVENT_END_BODY, function(\yii\base\Event $event) {
+            if ($this->sidebarRendered) {
+                return;
+            }
             $request = Craft::$app->getRequest();
             if ($request->getIsCpRequest() && !$request->getIsConsoleRequest() && !$request->getIsAjax()) {
                 $path = $request->getPathInfo();
-                
+
                 // Broadly match any CP path that ends with an ID (e.g., calendar/events/1670)
                 if (preg_match('/\/(\d+)(?:-[^\/]+)?$/', $path, $matches)) {
                     $eventId = $matches[1];
                     if (is_numeric($eventId)) {
-                        $eventElement = Craft::$app->getElements()->getElementById($eventId);
-                        static $rendered = false;
-                        
+                        $siteId = $this->_resolveCurrentSiteId();
+                        $eventElement = Craft::$app->getElements()->getElementById((int)$eventId, null, $siteId);
+
                         // Ensure it's a translatable element with supported sites
-                        if ($eventElement && method_exists($eventElement, 'getSupportedSites') && !$rendered) {
-                            $rendered = true;
+                        if ($eventElement && method_exists($eventElement, 'getSupportedSites')) {
+                            $this->sidebarRendered = true;
                             $buttonHtml = $this->_renderSidebarButton($eventElement);
-                            
+
                             echo "<div id='auto-translator-injected' style='display:none;'>{$buttonHtml}</div>";
                             echo "<script>
                                 (function() {
@@ -135,13 +140,53 @@ class AutoTranslator extends Plugin
         });
     }
 
+    /**
+     * Resolve which site the user is currently editing.
+     *
+     * Order of preference:
+     *  1. `site` query parameter (Craft 5 element editor uses ?site=handle)
+     *  2. `siteId` query parameter
+     *  3. The user's currently-selected CP site
+     */
+    private function _resolveCurrentSiteId(): ?int
+    {
+        $request = Craft::$app->getRequest();
+        $sitesService = Craft::$app->getSites();
+
+        $siteHandle = $request->getQueryParam('site');
+        if ($siteHandle) {
+            $site = $sitesService->getSiteByHandle($siteHandle);
+            if ($site) {
+                return $site->id;
+            }
+        }
+
+        $siteIdParam = $request->getQueryParam('siteId');
+        if ($siteIdParam && is_numeric($siteIdParam)) {
+            $site = $sitesService->getSiteById((int)$siteIdParam);
+            if ($site) {
+                return $site->id;
+            }
+        }
+
+        try {
+            return $sitesService->getCurrentSite()->id;
+        } catch (\Throwable $e) {
+            return $sitesService->getPrimarySite()->id;
+        }
+    }
+
     private function _renderSidebarButton($element)
     {
         if (!$element || !$element->id) return '';
+        if ($this->sidebarRendered) return '';
         try {
-            return Craft::$app->getView()->renderTemplate('auto-translator/_components/sidebar-button', [
-                'element' => $element
+            $html = Craft::$app->getView()->renderTemplate('auto-translator/_components/sidebar-button', [
+                'element' => $element,
+                'currentSiteId' => $element->siteId ?? $this->_resolveCurrentSiteId(),
             ]);
+            $this->sidebarRendered = true;
+            return $html;
         } catch (\Throwable $e) {
             Craft::error('Failed to render sidebar button: ' . $e->getMessage(), __METHOD__);
             return '';

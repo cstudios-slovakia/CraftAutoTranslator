@@ -1,4 +1,5 @@
 {% set sites = craft.app.sites.allSites %}
+{% set currentSiteId = currentSiteId ?? element.siteId %}
 {% if sites|length > 1 %}
     <div id="auto-translator-sidebar" class="meta" style="margin-top: 20px; border-top: 1px solid rgba(0, 0, 0, 0.1); padding-top: 20px;">
         <div class="data">
@@ -8,7 +9,7 @@
                     Translate to All Sites
                 </button>
                 {% for site in sites %}
-                    {% if site.id != element.siteId %}
+                    {% if site.id != currentSiteId %}
                         <button type="button" class="btn auto-translator-trigger-btn" data-target="{{ site.id }}" style="width: 100%; justify-content: center; border-color: #2782c3; color: #2782c3;">
                             Translate to {{ site.name }}
                         </button>
@@ -33,23 +34,42 @@
                 e.preventDefault();
                 var $btn = $(this);
                 var targetSiteId = $btn.data('target');
-                var originalText = $btn.text();
-                
+
                 $btn.addClass('loading').attr('disabled', true);
                 $('#auto-translator-status').hide();
 
-                Craft.postActionRequest('auto-translator/translate/element', {
+                var payload = {
                     elementId: {{ element.id }},
+                    sourceSiteId: {{ currentSiteId }},
                     targetSiteId: targetSiteId
-                }, function(response, textStatus) {
+                };
+
+                var done = function(success, errorMsg) {
                     $btn.removeClass('loading').attr('disabled', false);
-                    if (textStatus === 'success' && response.success) {
+                    if (success) {
                         $('#auto-translator-status').text('Translation queued!').show();
                         setTimeout(function() { $('#auto-translator-status').fadeOut(); }, 3000);
                     } else {
-                        Craft.cp.displayError(response.error || 'Failed to trigger translation.');
+                        Craft.cp.displayError(errorMsg || 'Failed to trigger translation.');
                     }
-                });
+                };
+
+                if (typeof Craft.sendActionRequest === 'function') {
+                    Craft.sendActionRequest('POST', 'auto-translator/translate/element', { data: payload })
+                        .then(function(response) {
+                            done(!!(response && response.data && response.data.success !== false), response && response.data && response.data.error);
+                        })
+                        .catch(function(e) {
+                            done(false, (e && e.response && e.response.data && e.response.data.error) || (e && e.message));
+                        });
+                } else if (typeof Craft.postActionRequest === 'function') {
+                    // Legacy fallback (Craft 3/early 4)
+                    Craft.postActionRequest('auto-translator/translate/element', payload, function(response, textStatus) {
+                        done(textStatus === 'success' && response && response.success, response && response.error);
+                    });
+                } else {
+                    done(false, 'Craft action request helper not available.');
+                }
             });
         });
     {% endjs %}
