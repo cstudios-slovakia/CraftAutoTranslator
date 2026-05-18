@@ -33,7 +33,7 @@ class OpenAiService extends Component
             
             $jsonContent = json_encode($content, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-            $systemPrompt = "You are a professional translator. You will receive a JSON object representing fields of a CMS entry. Your task is to translate all text values from the source language '$sourceLanguage' to the target language '$targetLanguage'. Maintain the exact same JSON structure, keys, and any HTML formatting or tags. Only translate the textual content.";
+            $systemPrompt = "You are a professional translator. You will receive a JSON object representing fields of a CMS entry. Your task is to translate all text values from the source language '$sourceLanguage' to the target language '$targetLanguage'. Maintain the exact same JSON structure, keys, and any HTML formatting or tags. Only translate the textual content. IMPORTANT: If a value is too short, unclear, gibberish, a code snippet, or otherwise untranslatable, return the original value UNCHANGED. Never return explanations, apologies, or error messages — always return a valid JSON value for every key.";
 
             $response = $client->chat()->create([
                 'model' => 'gpt-4o',
@@ -47,9 +47,9 @@ class OpenAiService extends Component
             $translatedJson = $response->choices[0]->message->content;
             
             $translatedContent = json_decode($translatedJson, true);
-            
+
             if (json_last_error() === JSON_ERROR_NONE) {
-                return $translatedContent;
+                return $this->_filterRefusals($content, $translatedContent);
             }
             
             Craft::error('Invalid JSON returned from OpenAI: ' . $translatedJson, __METHOD__);
@@ -59,5 +59,36 @@ class OpenAiService extends Component
             Craft::error('OpenAI Translation failed: ' . $e->getMessage(), __METHOD__);
             return null;
         }
+    }
+
+    private function _filterRefusals(array $original, array $translated): array
+    {
+        $refusalPatterns = [
+            "/i'?m sorry/i",
+            '/i need more context/i',
+            '/i cannot translate/i',
+            '/please provide/i',
+            '/could you please/i',
+            '/i don\'?t understand/i',
+            '/unclear text/i',
+            '/not enough context/i',
+            '/unable to translate/i',
+        ];
+
+        foreach ($translated as $key => $value) {
+            if (is_string($value)) {
+                foreach ($refusalPatterns as $pattern) {
+                    if (preg_match($pattern, $value)) {
+                        Craft::warning("OpenAI returned a refusal for field '$key', keeping original value.", __METHOD__);
+                        $translated[$key] = $original[$key] ?? $value;
+                        break;
+                    }
+                }
+            } elseif (is_array($value) && isset($original[$key]) && is_array($original[$key])) {
+                $translated[$key] = $this->_filterRefusals($original[$key], $value);
+            }
+        }
+
+        return $translated;
     }
 }
