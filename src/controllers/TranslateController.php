@@ -16,6 +16,27 @@ class TranslateController extends Controller
     protected array|int|bool $allowAnonymous = false;
 
     /**
+     * Run the queue after the current response has been sent, so the client gets a
+     * fast acknowledgement and queue jobs actually execute. Craft's built-in
+     * runQueueAutomatically dispatches a separate HTTP request to /actions/queue/run
+     * which often fails on shared hosting, leaving jobs sitting in the queue.
+     */
+    private function _runQueueAfterResponse(): void
+    {
+        Craft::$app->getResponse()->on(Response::EVENT_AFTER_SEND, function() {
+            try {
+                if (function_exists('fastcgi_finish_request')) {
+                    @fastcgi_finish_request();
+                }
+                @set_time_limit(300);
+                Craft::$app->getQueue()->run();
+            } catch (\Throwable $e) {
+                Craft::error('Inline queue run failed: ' . $e->getMessage(), 'auto-translator');
+            }
+        });
+    }
+
+    /**
      * Translate the current site's content into its own language (auto-detect source).
      * Used by the "Translate" in-place button in the sidebar.
      */
@@ -38,6 +59,8 @@ class TranslateController extends Controller
             'sourceSiteId' => null, // auto-detect source language
             'targetSiteId' => $siteId,
         ]));
+
+        $this->_runQueueAfterResponse();
 
         return $this->asSuccess('Translation job added to queue.', ['jobCount' => 1]);
     }
@@ -90,6 +113,8 @@ class TranslateController extends Controller
                 'targetSiteId' => $siteId,
             ]));
         }
+
+        $this->_runQueueAfterResponse();
 
         return $this->asSuccess('Translation job(s) added to queue.', [
             'jobCount' => count($targetSiteIds),
