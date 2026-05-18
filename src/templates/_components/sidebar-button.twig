@@ -59,7 +59,17 @@
             }
 
             $(document).ready(function() {
-                $('.auto-translator-trigger-btn').on('click', function(e) {
+                // Move sidebar into visible location if it's sitting inside the hidden
+                // #auto-translator-injected container that AutoTranslator.php outputs.
+                if ($('#auto-translator-sidebar').closest('#auto-translator-injected').length > 0) {
+                    var $target = $('#settings, #details').first();
+                    if ($target.length > 0) {
+                        $target.append($('#auto-translator-sidebar'));
+                    }
+                }
+
+                // Event delegation: works whether buttons are already in DOM or injected later.
+                $(document).on('click', '.auto-translator-trigger-btn', function(e) {
                     e.preventDefault();
                     var $btn = $(this);
                     var targetSiteId = $btn.data('target');
@@ -93,7 +103,7 @@
                             Craft.cp.displayError(msg);
                         });
                 });
-            });
+            }); // document.ready
         })();
     {% endjs %}
 {% endif %}
