@@ -39,7 +39,7 @@
             function startPolling(siteName) {
                 stopPolling();
                 var polls = 0;
-                var maxPolls = 60; // 2 min timeout at 2s interval
+                var maxPolls = 90; // 3 min timeout at 2s interval
 
                 _pollInterval = setInterval(function() {
                     polls++;
@@ -49,8 +49,13 @@
                             var data = r.data || {};
                             if (!data.running) {
                                 stopPolling();
-                                Craft.cp.displayNotice('Translation to ' + siteName + ' complete! Reloading…');
-                                setTimeout(function() { window.location.reload(); }, 1400);
+                                if (data.failed && data.failed > 0) {
+                                    Craft.cp.displayError('Translation failed. Check the Craft queue for details.');
+                                    enableAllButtons();
+                                } else {
+                                    Craft.cp.displayNotice('Translation to ' + siteName + ' complete! Reloading…');
+                                    setTimeout(function() { window.location.reload(); }, 1400);
+                                }
                             }
                         })
                         .catch(function() {
@@ -59,6 +64,7 @@
 
                     if (polls >= maxPolls) {
                         stopPolling();
+                        enableAllButtons();
                         Craft.cp.displayNotice('Translation is still running in the background.');
                     }
                 }, 2000);

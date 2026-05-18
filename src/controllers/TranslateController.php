@@ -99,6 +99,10 @@ class TranslateController extends Controller
     /**
      * Returns whether any TranslateElementJobs are still pending in the queue.
      * Used by the sidebar JS to poll for completion.
+     *
+     * Craft 5 queue schema: completed jobs are DELETED (no done_at column).
+     * Active jobs: fail=false (waiting: timeUpdated=null, running: timeUpdated=timestamp).
+     * Failed jobs: fail=true (kept in table).
      */
     public function actionQueueStatus(): Response
     {
@@ -108,16 +112,27 @@ class TranslateController extends Controller
             $queue = Craft::$app->getQueue();
             $tableName = $queue->tableName ?? '{{%queue}}';
 
-            $pending = (int)(new \yii\db\Query())
+            $active = (int)(new \yii\db\Query())
                 ->from($tableName)
                 ->where(['like', 'job', 'TranslateElementJob'])
-                ->andWhere(['done_at' => null])
-                ->andWhere(['error' => null])
+                ->andWhere(['fail' => false])
                 ->count();
 
-            return $this->asJson(['running' => $pending > 0, 'pending' => $pending]);
+            $failed = (int)(new \yii\db\Query())
+                ->from($tableName)
+                ->where(['like', 'job', 'TranslateElementJob'])
+                ->andWhere(['fail' => true])
+                ->count();
+
+            return $this->asJson([
+                'running' => $active > 0,
+                'pending' => $active,
+                'failed' => $failed,
+            ]);
         } catch (\Throwable $e) {
-            return $this->asJson(['running' => false, 'pending' => 0]);
+            Craft::warning('Queue status check failed: ' . $e->getMessage(), 'auto-translator');
+            // Fail safe: keep polling rather than falsely reporting done.
+            return $this->asJson(['running' => true, 'pending' => -1]);
         }
     }
 
