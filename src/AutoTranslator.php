@@ -119,11 +119,15 @@ class AutoTranslator extends Plugin
             if ($request->getIsCpRequest() && !$request->getIsConsoleRequest() && !$request->getIsAjax()) {
                 $path = $request->getPathInfo();
 
-                // Broadly match any CP path that ends with an ID (e.g., calendar/events/1670)
-                if (preg_match('/\/(\d+)(?:-[^\/]+)?$/', $path, $matches)) {
+                // Broadly match any CP path that ends with an ID, with optional slug
+                // and optional trailing site handle. Examples:
+                //   entries/news/123-my-entry
+                //   calendar/events/1670
+                //   calendar/events/1670/sk
+                if (preg_match('#/(\d+)(?:-[^/]+)?(?:/[\w\-]+)?/?$#', $path, $matches)) {
                     $eventId = $matches[1];
                     if (is_numeric($eventId)) {
-                        $siteId = $this->_resolveCurrentSiteId();
+                        $siteId = $this->_resolveCurrentSiteIdFromPath($path) ?? $this->_resolveCurrentSiteId();
                         $eventElement = Craft::$app->getElements()->getElementById((int)$eventId, null, $siteId);
 
                         // Ensure it's a translatable element with supported sites
@@ -163,6 +167,22 @@ class AutoTranslator extends Plugin
      *  2. `siteId` query parameter
      *  3. The user's currently-selected CP site
      */
+    /**
+     * Extract a site handle from the CP path if it follows the
+     * `<...>/<id>/<siteHandle>` shape (e.g. Solspace Calendar's
+     * `calendar/events/123/sk`). Returns the site ID or null.
+     */
+    private function _resolveCurrentSiteIdFromPath(string $path): ?int
+    {
+        if (preg_match('#/\d+(?:-[^/]+)?/([\w\-]+)/?$#', $path, $m)) {
+            $site = Craft::$app->getSites()->getSiteByHandle($m[1]);
+            if ($site) {
+                return $site->id;
+            }
+        }
+        return null;
+    }
+
     private function _resolveCurrentSiteId(): ?int
     {
         $request = Craft::$app->getRequest();
