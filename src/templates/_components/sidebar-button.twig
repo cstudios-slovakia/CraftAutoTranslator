@@ -2,21 +2,29 @@
 {% set currentSiteId = currentSiteId ?? element.siteId %}
 {% set currentSite = craft.app.sites.getSiteById(currentSiteId) %}
 {% if sites|length > 1 %}
-    <div id="auto-translator-sidebar" class="meta" style="margin-top: 20px; border-top: 1px solid rgba(0, 0, 0, 0.1); padding-top: 20px;">
-        <div class="data">
-            <h5 class="heading">Auto Translator</h5>
-            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+    <div id="auto-translator-sidebar" style="margin-top: 1.5rem;">
+        <h6 style="
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--medium-text-color, #8f98a3);
+            margin: 0 0 0.5rem;
+            padding: 0;
+        ">Auto Translator</h6>
+        <div class="meta" style="padding: 0.75rem;">
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                 {# In-place button: translates current site's content to its own language (auto-detect source) #}
-                <button type="button" class="btn submit auto-translator-inplace-btn" style="width: 100%; justify-content: center;">
-                    Translate
+                <button type="button" class="btn submit fullwidth auto-translator-inplace-btn">
+                    Auto-translate
                 </button>
-                <div style="border-top: 1px solid rgba(0,0,0,0.08); margin: 2px 0;"></div>
-                <button type="button" class="btn submit auto-translator-trigger-btn" data-target="all" data-site-name="All Sites" style="width: 100%; justify-content: center;">
+                <div style="border-top: 1px solid rgba(0,0,0,0.1); margin: 0.15rem 0;"></div>
+                <button type="button" class="btn submit fullwidth auto-translator-trigger-btn" data-target="all" data-site-name="All Sites">
                     Translate to All Sites
                 </button>
                 {% for site in sites %}
                     {% if site.id != currentSiteId %}
-                        <button type="button" class="btn auto-translator-trigger-btn" data-target="{{ site.id }}" data-site-name="{{ site.name }}" style="width: 100%; justify-content: center; border-color: #2782c3; color: #2782c3;">
+                        <button type="button" class="btn fullwidth auto-translator-trigger-btn" data-target="{{ site.id }}" data-site-name="{{ site.name }}" style="border-color: var(--link-color, #2782c3); color: var(--link-color, #2782c3);">
                             Translate to {{ site.name }}
                         </button>
                     {% endif %}
