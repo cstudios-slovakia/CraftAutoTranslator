@@ -182,7 +182,23 @@ class TranslationService extends Component
         }
 
         $element->setScenario(\craft\base\Element::SCENARIO_LIVE);
-        return Craft::$app->getElements()->saveElement($element);
+        try {
+            return Craft::$app->getElements()->saveElement($element);
+        } catch (\Throwable $e) {
+            // Solspace Calendar events (and some other element types) can throw
+            // "Attempting to save an element in an unsupported site" at save time
+            // even when getElementById happily loaded the element for that site.
+            // Treat that as a soft skip rather than a hard queue failure.
+            $msg = $e->getMessage();
+            if (stripos($msg, 'unsupported site') !== false) {
+                Craft::warning(
+                    "Skipping save of element {$element->id} for site {$element->siteId}: {$msg}",
+                    'auto-translator'
+                );
+                return false;
+            }
+            throw $e;
+        }
     }
 
     private function _getFieldFromLayout(ElementInterface $element, string $handle): ?\craft\base\FieldInterface
