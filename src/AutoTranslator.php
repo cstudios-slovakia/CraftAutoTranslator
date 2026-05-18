@@ -20,7 +20,6 @@ class AutoTranslator extends Plugin
 {
     public static ?AutoTranslator $plugin = null;
 
-    private bool $sidebarRendered = false;
     public bool $hasCpSettings = true;
     public bool $hasCpSection = false;
 
@@ -97,7 +96,8 @@ class AutoTranslator extends Plugin
 
         // Fallback JS injection for any element edit page (Craft 5 URL structures & Vue apps like Calendar)
         Event::on(View::class, View::EVENT_END_BODY, function(\yii\base\Event $event) {
-            if ($this->sidebarRendered) {
+            static $emitted = false;
+            if ($emitted) {
                 return;
             }
             $request = Craft::$app->getRequest();
@@ -113,7 +113,7 @@ class AutoTranslator extends Plugin
 
                         // Ensure it's a translatable element with supported sites
                         if ($eventElement && method_exists($eventElement, 'getSupportedSites')) {
-                            $this->sidebarRendered = true;
+                            $emitted = true;
                             $buttonHtml = $this->_renderSidebarButton($eventElement);
 
                             echo "<div id='auto-translator-injected' style='display:none;'>{$buttonHtml}</div>";
@@ -179,14 +179,11 @@ class AutoTranslator extends Plugin
     private function _renderSidebarButton($element)
     {
         if (!$element || !$element->id) return '';
-        if ($this->sidebarRendered) return '';
         try {
-            $html = Craft::$app->getView()->renderTemplate('auto-translator/_components/sidebar-button', [
+            return Craft::$app->getView()->renderTemplate('auto-translator/_components/sidebar-button', [
                 'element' => $element,
                 'currentSiteId' => $element->siteId ?? $this->_resolveCurrentSiteId(),
             ]);
-            $this->sidebarRendered = true;
-            return $html;
         } catch (\Throwable $e) {
             Craft::error('Failed to render sidebar button: ' . $e->getMessage(), __METHOD__);
             return '';

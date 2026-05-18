@@ -1,0 +1,26 @@
+name: Deploy to staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH and pull plugin
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          script: |
+            set -e
+            cd ~/cstudios.ninja/sub/dszprog/plugins/craft-auto-translator
+            git fetch origin
+            git reset --hard origin/main
+            cd ~/cstudios.ninja/sub/dszprog
+            php craft clear-caches/all
+            echo "Deployed $(git -C plugins/craft-auto-translator rev-parse --short HEAD)"
