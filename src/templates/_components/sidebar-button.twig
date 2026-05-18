@@ -35,7 +35,64 @@
 
     {% js %}
         (function() {
+            // Idempotent guard: this block can get registered multiple times when
+            // the sidebar template is rendered by both the cp.elements.edit.details
+            // hook and the View::EVENT_END_BODY fallback, or when Solspace
+            // Calendar's Vue SPA re-mounts. Without this guard, one click fires
+            // as many AJAX POSTs as the block has been executed.
+            if (window.__autoTranslatorBound) return;
+            window.__autoTranslatorBound = true;
+
             var _pollInterval = null;
+            var _serverSiteId = {{ currentSiteId }};
+
+            // Determine which site the user is actually editing — at click time,
+            // not at server-render time. Solspace Calendar uses a Vue SPA and the
+            // initial server render can't always tell which site tab is active.
+            function resolveCurrentSiteId() {
+                var sites = (window.Craft && Craft.sites) ? Craft.sites : null;
+
+                // 1. URL path ending in /<id>(-slug)?/<siteHandle> (Solspace pattern)
+                var pathMatch = window.location.pathname.match(/\/\d+(?:-[^\/]+)?\/([\w-]+)\/?$/);
+                if (pathMatch && sites) {
+                    var handle = pathMatch[1];
+                    for (var i = 0; i < sites.length; i++) {
+                        if (sites[i].handle === handle) return sites[i].id;
+                    }
+                }
+
+                // 2. ?site= query param (Craft's standard element editor)
+                var qs;
+                try { qs = new URLSearchParams(window.location.search); } catch (e) { qs = null; }
+                var siteParam = qs && qs.get('site');
+                if (siteParam && sites) {
+                    for (var j = 0; j < sites.length; j++) {
+                        if (sites[j].handle === siteParam) return sites[j].id;
+                    }
+                }
+
+                // 3. Craft's selected primary-nav site (set when user toggles
+                //    the site switcher in the CP header)
+                if (window.Craft && Craft.cp && Craft.cp.$siteCrumb) {
+                    var crumbSiteId = parseInt(Craft.cp.$siteCrumb.data('site-id'), 10);
+                    if (crumbSiteId) return crumbSiteId;
+                }
+                if (window.Craft && Craft.siteId) {
+                    return Craft.siteId;
+                }
+
+                // 4. Fallback to the server-rendered value
+                return _serverSiteId;
+            }
+
+            function siteNameForId(siteId) {
+                if (window.Craft && Craft.sites) {
+                    for (var i = 0; i < Craft.sites.length; i++) {
+                        if (Craft.sites[i].id == siteId) return Craft.sites[i].name;
+                    }
+                }
+                return 'site';
+            }
 
             function stopPolling() {
                 if (_pollInterval) {
@@ -48,18 +105,16 @@
                 stopPolling();
                 var polls = 0;
                 var consecutiveErrors = 0;
-                var sawRunning = false; // we want to confirm running was true at least once before deciding "done"
+                var sawRunning = false;
                 var maxPolls = 90;
 
                 function doPoll() {
                     polls++;
-                    console.log('[AutoTranslator] poll #' + polls + ' for ' + siteName);
 
                     Craft.sendActionRequest('GET', 'auto-translator/translate/queue-status')
                         .then(function(r) {
                             consecutiveErrors = 0;
                             var data = (r && r.data) || {};
-                            console.log('[AutoTranslator] poll result', data);
 
                             if (data.running) {
                                 sawRunning = true;
@@ -69,12 +124,15 @@
                             // Not running. Only treat as "done" once we've confirmed the job was actually
                             // running at some point — otherwise we might be polling before the job got picked up.
                             if (!sawRunning && polls < 3) {
-                                return; // give it a few more polls to start
+                                return;
                             }
 
                             stopPolling();
                             if (data.failed && data.failed > 0) {
-                                Craft.cp.displayError('Translation failed. Check the Craft queue for details.');
+                                var errMsg = data.lastError
+                                    ? 'Translation failed: ' + data.lastError
+                                    : 'Translation failed. Check the Craft queue for details.';
+                                Craft.cp.displayError(errMsg);
                                 enableAllButtons();
                             } else {
                                 Craft.cp.displayNotice('Translation to ' + siteName + ' complete! Reloading…');
@@ -83,7 +141,6 @@
                         })
                         .catch(function(err) {
                             consecutiveErrors++;
-                            console.error('[AutoTranslator] queue-status poll failed (' + consecutiveErrors + ')', err);
                             if (consecutiveErrors >= 3) {
                                 stopPolling();
                                 enableAllButtons();
@@ -99,7 +156,6 @@
                     }
                 }
 
-                // Poll once immediately, then on interval.
                 doPoll();
                 _pollInterval = setInterval(doPoll, 2000);
             }
@@ -113,8 +169,6 @@
             }
 
             $(document).ready(function() {
-                // Move sidebar into visible location if it's sitting inside the hidden
-                // #auto-translator-injected container that AutoTranslator.php outputs.
                 if ($('#auto-translator-sidebar').closest('#auto-translator-injected').length > 0) {
                     var $target = $('#settings, #details').first();
                     if ($target.length > 0) {
@@ -122,21 +176,21 @@
                     }
                 }
 
-                // In-place "Translate" button: translate current content to current site's language.
                 $(document).on('click', '.auto-translator-inplace-btn', function(e) {
                     e.preventDefault();
                     disableAllButtons();
                     stopPolling();
 
+                    var siteId = resolveCurrentSiteId();
                     var payload = {
                         elementId: {{ element.id }},
-                        siteId: {{ currentSiteId }}
+                        siteId: siteId
                     };
 
                     Craft.sendActionRequest('POST', 'auto-translator/translate/translate-in-place', { data: payload })
                         .then(function(response) {
                             Craft.cp.displayNotice('Translation queued. Working…');
-                            startPolling('{{ currentSite.name|e('js') }}');
+                            startPolling(siteNameForId(siteId));
                         })
                         .catch(function(err) {
                             enableAllButtons();
@@ -147,7 +201,6 @@
                         });
                 });
 
-                // "Translate to X" buttons: translate from current site to target site.
                 $(document).on('click', '.auto-translator-trigger-btn', function(e) {
                     e.preventDefault();
                     var $btn = $(this);
@@ -157,9 +210,10 @@
                     disableAllButtons();
                     stopPolling();
 
+                    var sourceSiteId = resolveCurrentSiteId();
                     var payload = {
                         elementId: {{ element.id }},
-                        sourceSiteId: {{ currentSiteId }},
+                        sourceSiteId: sourceSiteId,
                         targetSiteId: targetSiteId
                     };
 
@@ -182,7 +236,7 @@
                             Craft.cp.displayError(msg);
                         });
                 });
-            }); // document.ready
+            });
         })();
     {% endjs %}
 {% endif %}

@@ -240,13 +240,19 @@ class TranslationService extends Component
      */
     private function _isTitleSiteTranslatable(ElementInterface $element): bool
     {
-        $methodNone = \craft\base\Field::TRANSLATION_METHOD_NONE;
+        // Craft 5 ElementInterface exposes getIsTitleTranslatable() — Solspace
+        // Calendar implements it (checks $calendar->titleTranslationMethod),
+        // and core element types delegate to their section/group/entry-type
+        // settings. Use it whenever it's available.
+        if (method_exists($element, 'getIsTitleTranslatable')) {
+            try {
+                return (bool)$element->getIsTitleTranslatable();
+            } catch (\Throwable $e) {
+                // Fall through to the property probe below.
+            }
+        }
 
-        // Probe the usual containers for a titleTranslationMethod property.
-        // We default to TRUE (translatable) and only opt out when we explicitly
-        // find translationMethod === 'none'. This avoids accidentally skipping
-        // title translation just because we can't find the property on a
-        // third-party element type's model.
+        $methodNone = \craft\base\Field::TRANSLATION_METHOD_NONE;
         $containers = [];
         foreach (['getType', 'getCalendar', 'getGroup', 'getSection'] as $getter) {
             if (method_exists($element, $getter)) {
@@ -262,8 +268,6 @@ class TranslationService extends Component
         }
 
         foreach ($containers as $container) {
-            // Use property_exists so we read the value even when it's null,
-            // then only treat 'none' as a definitive opt-out.
             if (property_exists($container, 'titleTranslationMethod')) {
                 $method = $container->titleTranslationMethod ?? null;
                 if ($method === $methodNone) {
@@ -275,7 +279,6 @@ class TranslationService extends Component
             }
         }
 
-        // Couldn't determine — assume translatable.
         return true;
     }
 

@@ -51,19 +51,47 @@ class OpenAiService extends Component
             ]);
 
             $translatedJson = $response->choices[0]->message->content;
-            
+
             $translatedContent = json_decode($translatedJson, true);
 
             if (json_last_error() === JSON_ERROR_NONE) {
                 return $this->_filterRefusals($content, $translatedContent);
             }
-            
-            Craft::error('Invalid JSON returned from OpenAI: ' . $translatedJson, __METHOD__);
-            return null;
 
-        } catch (\Exception $e) {
+            Craft::error('Invalid JSON returned from OpenAI: ' . $translatedJson, __METHOD__);
+            throw new \RuntimeException('OpenAI returned malformed JSON.');
+        } catch (\OpenAI\Exceptions\ErrorException $e) {
+            // OpenAI API responded with an error (rate limit, quota, invalid key, etc).
+            // Re-throw with a user-readable message so the queue records it and the
+            // sidebar JS can surface it in a toast.
+            $code = $e->getErrorCode();
+            $type = $e->getErrorType();
+            $raw = $e->getMessage();
+
+            Craft::error("OpenAI API error [code={$code} type={$type}]: {$raw}", __METHOD__);
+
+            $userMsg = match (true) {
+                $code === 'insufficient_quota' || $type === 'insufficient_quota' =>
+                    'OpenAI quota exceeded. Check your OpenAI account billing/usage.',
+                $code === 'rate_limit_exceeded' || str_contains(strtolower($raw), 'rate limit') =>
+                    'OpenAI rate limit hit. Retry in a moment.',
+                $code === 'invalid_api_key' || $type === 'invalid_request_error' && str_contains(strtolower($raw), 'api key') =>
+                    'OpenAI API key is invalid. Update it in plugin settings.',
+                $code === 'model_not_found' =>
+                    'OpenAI model not available for this API key.',
+                default => 'OpenAI error: ' . $raw,
+            };
+
+            throw new \RuntimeException($userMsg, 0, $e);
+        } catch (\OpenAI\Exceptions\TransporterException $e) {
+            Craft::error('OpenAI network error: ' . $e->getMessage(), __METHOD__);
+            throw new \RuntimeException('Could not reach OpenAI (network error): ' . $e->getMessage(), 0, $e);
+        } catch (\RuntimeException $e) {
+            // Already-formatted user-facing message — bubble up.
+            throw $e;
+        } catch (\Throwable $e) {
             Craft::error('OpenAI Translation failed: ' . $e->getMessage(), __METHOD__);
-            return null;
+            throw new \RuntimeException('Translation failed: ' . $e->getMessage(), 0, $e);
         }
     }
 

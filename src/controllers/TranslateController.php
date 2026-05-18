@@ -37,6 +37,27 @@ class TranslateController extends Controller
     }
 
     /**
+     * Wipe any stale failed TranslateElementJob rows from the queue table so
+     * the next polling cycle only sees the result of the job we're about to
+     * push. Without this, an old "OpenAI quota exceeded" error from a previous
+     * session would be reported as the result of a brand new translation.
+     */
+    private function _clearStaleFailedJobs(): void
+    {
+        try {
+            $tableName = Craft::$app->getQueue()->tableName ?? '{{%queue}}';
+            Craft::$app->getDb()->createCommand()
+                ->delete($tableName, ['and',
+                    ['like', 'job', 'TranslateElementJob'],
+                    ['fail' => true],
+                ])
+                ->execute();
+        } catch (\Throwable $e) {
+            Craft::warning('Failed to clear stale translate jobs: ' . $e->getMessage(), 'auto-translator');
+        }
+    }
+
+    /**
      * Translate the current site's content into its own language (auto-detect source).
      * Used by the "Translate" in-place button in the sidebar.
      */
@@ -53,6 +74,8 @@ class TranslateController extends Controller
         if (!$element) {
             return $this->asFailure('Element not found.');
         }
+
+        $this->_clearStaleFailedJobs();
 
         Craft::$app->getQueue()->push(new TranslateElementJob([
             'elementId' => $elementId,
@@ -113,6 +136,8 @@ class TranslateController extends Controller
             $targetSiteIds[] = $targetSiteId;
         }
 
+        $this->_clearStaleFailedJobs();
+
         foreach ($targetSiteIds as $siteId) {
             Craft::$app->getQueue()->push(new TranslateElementJob([
                 'elementId' => $elementId,
@@ -156,14 +181,35 @@ class TranslateController extends Controller
                 ->andWhere(['fail' => true])
                 ->count();
 
+            $lastError = null;
+            if ($failed > 0) {
+                // Surface the most recent failed job's error message so the
+                // sidebar JS can show a meaningful toast (e.g. "OpenAI quota
+                // exceeded" instead of a generic "Translation failed").
+                $row = (new \yii\db\Query())
+                    ->select(['error', 'dateFailed', 'timeUpdated'])
+                    ->from($tableName)
+                    ->where(['like', 'job', 'TranslateElementJob'])
+                    ->andWhere(['fail' => true])
+                    ->orderBy(['dateFailed' => SORT_DESC, 'timeUpdated' => SORT_DESC])
+                    ->limit(1)
+                    ->one();
+                if ($row && !empty($row['error'])) {
+                    // Yii records the full exception trace in `error`; the
+                    // first line is the message we want.
+                    $firstLine = strtok((string)$row['error'], "\n");
+                    $lastError = trim($firstLine);
+                }
+            }
+
             return $this->asJson([
                 'running' => $active > 0,
                 'pending' => $active,
                 'failed' => $failed,
+                'lastError' => $lastError,
             ]);
         } catch (\Throwable $e) {
             Craft::warning('Queue status check failed: ' . $e->getMessage(), 'auto-translator');
-            // Fail safe: keep polling rather than falsely reporting done.
             return $this->asJson(['running' => true, 'pending' => -1]);
         }
     }
