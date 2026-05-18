@@ -99,7 +99,14 @@ class TranslateController extends Controller
             foreach ($element->getSupportedSites() as $supportedSite) {
                 $siteId = is_numeric($supportedSite) ? $supportedSite : (is_object($supportedSite) ? $supportedSite->siteId : $supportedSite['siteId']);
                 if ($siteId != $sourceSiteId) {
-                    $targetSiteIds[] = $siteId;
+                    // Verify the element can actually be loaded for that site —
+                    // some element types (e.g. Solspace Calendar events) report
+                    // sites as supported but don't have a per-site row, which
+                    // would cause the job to overwrite the wrong content or fail.
+                    $check = Craft::$app->getElements()->getElementById($elementId, null, (int)$siteId);
+                    if ($check && (int)$check->siteId === (int)$siteId) {
+                        $targetSiteIds[] = $siteId;
+                    }
                 }
             }
         } else {

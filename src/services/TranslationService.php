@@ -96,6 +96,18 @@ class TranslationService extends Component
             return false;
         }
 
+        // Guard against elements that don't actually support the requested target site
+        // (e.g. Solspace Calendar events that aren't enabled for that site). Craft can
+        // silently fall back to a different site's row, which would cause us to overwrite
+        // the wrong site's content. Refuse to proceed in that case.
+        if ((int)$targetElement->siteId !== (int)$targetSiteId) {
+            Craft::error(
+                "Element $elementId does not support Site $targetSiteId (loaded as Site {$targetElement->siteId}). Skipping translation.",
+                'auto-translator'
+            );
+            return false;
+        }
+
         // null source language = let OpenAI auto-detect (used for in-place translation)
         $sourceLanguage = $sourceSiteId !== null
             ? Craft::$app->getSites()->getSiteById($sourceSiteId)->language
