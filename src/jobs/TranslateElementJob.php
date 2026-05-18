@@ -9,7 +9,7 @@ use cstudios\autotranslator\AutoTranslator;
 class TranslateElementJob extends BaseJob
 {
     public int $elementId;
-    public int $sourceSiteId;
+    public ?int $sourceSiteId = null;
     public int $targetSiteId;
 
     public function execute($queue): void

@@ -76,13 +76,17 @@ class TranslationService extends Component
         }
     }
 
-    public function translateElement(int $elementId, int $sourceSiteId, int $targetSiteId)
+    public function translateElement(int $elementId, ?int $sourceSiteId, int $targetSiteId)
     {
-        Craft::info("Starting translation for Element $elementId from Site $sourceSiteId to Site $targetSiteId", 'auto-translator');
+        // When sourceSiteId is null we translate the target site's own content in-place
+        // (source language auto-detected by OpenAI).
+        $effectiveSourceSiteId = $sourceSiteId ?? $targetSiteId;
 
-        $sourceElement = Craft::$app->getElements()->getElementById($elementId, null, $sourceSiteId);
+        Craft::info("Starting translation for Element $elementId from Site $effectiveSourceSiteId to Site $targetSiteId" . ($sourceSiteId === null ? ' (auto-detect source language)' : ''), 'auto-translator');
+
+        $sourceElement = Craft::$app->getElements()->getElementById($elementId, null, $effectiveSourceSiteId);
         if (!$sourceElement) {
-            Craft::error("Source element $elementId not found for Site $sourceSiteId", 'auto-translator');
+            Craft::error("Source element $elementId not found for Site $effectiveSourceSiteId", 'auto-translator');
             return false;
         }
 
@@ -92,7 +96,10 @@ class TranslationService extends Component
             return false;
         }
 
-        $sourceLanguage = Craft::$app->getSites()->getSiteById($sourceSiteId)->language;
+        // null source language = let OpenAI auto-detect (used for in-place translation)
+        $sourceLanguage = $sourceSiteId !== null
+            ? Craft::$app->getSites()->getSiteById($sourceSiteId)->language
+            : null;
         $targetLanguage = Craft::$app->getSites()->getSiteById($targetSiteId)->language;
 
         $fields = $this->_getTranslatableFields($sourceElement);

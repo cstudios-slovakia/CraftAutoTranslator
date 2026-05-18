@@ -16,6 +16,33 @@ class TranslateController extends Controller
     protected array|int|bool $allowAnonymous = false;
 
     /**
+     * Translate the current site's content into its own language (auto-detect source).
+     * Used by the "Translate" in-place button in the sidebar.
+     */
+    public function actionTranslateInPlace(): Response
+    {
+        $this->requirePostRequest();
+        $this->requireAcceptsJson();
+
+        $request = Craft::$app->getRequest();
+        $elementId = (int)$request->getRequiredBodyParam('elementId');
+        $siteId = (int)$request->getRequiredBodyParam('siteId');
+
+        $element = Craft::$app->getElements()->getElementById($elementId, null, $siteId);
+        if (!$element) {
+            return $this->asFailure('Element not found.');
+        }
+
+        Craft::$app->getQueue()->push(new TranslateElementJob([
+            'elementId' => $elementId,
+            'sourceSiteId' => null, // auto-detect source language
+            'targetSiteId' => $siteId,
+        ]));
+
+        return $this->asSuccess('Translation job added to queue.', ['jobCount' => 1]);
+    }
+
+    /**
      * Manually translate a specific element.
      */
     public function actionElement(): Response

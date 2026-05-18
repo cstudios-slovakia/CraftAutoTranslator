@@ -1,10 +1,16 @@
 {% set sites = craft.app.sites.allSites %}
 {% set currentSiteId = currentSiteId ?? element.siteId %}
+{% set currentSite = craft.app.sites.getSiteById(currentSiteId) %}
 {% if sites|length > 1 %}
     <div id="auto-translator-sidebar" class="meta" style="margin-top: 20px; border-top: 1px solid rgba(0, 0, 0, 0.1); padding-top: 20px;">
         <div class="data">
             <h5 class="heading">Auto Translator</h5>
             <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+                {# In-place button: translates current site's content to its own language (auto-detect source) #}
+                <button type="button" class="btn submit auto-translator-inplace-btn" style="width: 100%; justify-content: center;">
+                    Translate
+                </button>
+                <div style="border-top: 1px solid rgba(0,0,0,0.08); margin: 2px 0;"></div>
                 <button type="button" class="btn submit auto-translator-trigger-btn" data-target="all" data-site-name="All Sites" style="width: 100%; justify-content: center;">
                     Translate to All Sites
                 </button>
@@ -58,6 +64,14 @@
                 }, 2000);
             }
 
+            function disableAllButtons() {
+                $('.auto-translator-trigger-btn, .auto-translator-inplace-btn').addClass('loading').attr('disabled', true);
+            }
+
+            function enableAllButtons() {
+                $('.auto-translator-trigger-btn, .auto-translator-inplace-btn').removeClass('loading').attr('disabled', false);
+            }
+
             $(document).ready(function() {
                 // Move sidebar into visible location if it's sitting inside the hidden
                 // #auto-translator-injected container that AutoTranslator.php outputs.
@@ -68,14 +82,39 @@
                     }
                 }
 
-                // Event delegation: works whether buttons are already in DOM or injected later.
+                // In-place "Translate" button: translate current content to current site's language.
+                $(document).on('click', '.auto-translator-inplace-btn', function(e) {
+                    e.preventDefault();
+                    disableAllButtons();
+                    stopPolling();
+
+                    var payload = {
+                        elementId: {{ element.id }},
+                        siteId: {{ currentSiteId }}
+                    };
+
+                    Craft.sendActionRequest('POST', 'auto-translator/translate/translate-in-place', { data: payload })
+                        .then(function(response) {
+                            Craft.cp.displayNotice('Translation queued. Working…');
+                            startPolling('{{ currentSite.name|e('js') }}');
+                        })
+                        .catch(function(err) {
+                            enableAllButtons();
+                            var msg = (err && err.response && err.response.data && err.response.data.error)
+                                || (err && err.message)
+                                || 'Translation failed.';
+                            Craft.cp.displayError(msg);
+                        });
+                });
+
+                // "Translate to X" buttons: translate from current site to target site.
                 $(document).on('click', '.auto-translator-trigger-btn', function(e) {
                     e.preventDefault();
                     var $btn = $(this);
                     var targetSiteId = $btn.data('target');
                     var siteName = $btn.data('site-name') || 'site';
 
-                    $('.auto-translator-trigger-btn').addClass('loading').attr('disabled', true);
+                    disableAllButtons();
                     stopPolling();
 
                     var payload = {
@@ -96,7 +135,7 @@
                             startPolling(siteName);
                         })
                         .catch(function(err) {
-                            $('.auto-translator-trigger-btn').removeClass('loading').attr('disabled', false);
+                            enableAllButtons();
                             var msg = (err && err.response && err.response.data && err.response.data.error)
                                 || (err && err.message)
                                 || 'Translation failed.';
