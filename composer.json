@@ -35,6 +35,7 @@
     "handle": "auto-translator",
     "hasCpSettings": true,
     "hasCpSection": false,
+    "iconPath": "src/icon.svg",
     "class": "cstudios\\autotranslator\\AutoTranslator"
   }
 }

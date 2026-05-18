@@ -23,6 +23,21 @@ class AutoTranslator extends Plugin
     public bool $hasCpSettings = true;
     public bool $hasCpSection = false;
 
+    public static function config(): array
+    {
+        return [
+            'components' => [
+                'translation' => TranslationService::class,
+                'openai' => OpenAiService::class,
+            ],
+        ];
+    }
+
+    public function getIconPath(): ?string
+    {
+        return __DIR__ . '/icon.svg';
+    }
+
     public function init()
     {
         parent::init();
