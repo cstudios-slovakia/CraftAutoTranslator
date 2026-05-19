@@ -17,11 +17,15 @@ class TranslateElementJob extends BaseJob
         $this->setProgress($queue, 0, 'Translating element...');
         
         $success = AutoTranslator::$plugin->translation->translateElement($this->elementId, $this->sourceSiteId, $this->targetSiteId);
-        
+
         if (!$success) {
-            Craft::error("Failed to translate element ID {$this->elementId} to site ID {$this->targetSiteId}", __METHOD__);
+            $msg = "Failed to translate element ID {$this->elementId} to site ID {$this->targetSiteId}. Check @storage/logs/auto-translator.log for details.";
+            Craft::error($msg, __METHOD__);
+            // Throw so the queue marks this job as failed and the sidebar UI
+            // shows an error toast instead of a false "Translation complete".
+            throw new \RuntimeException($msg);
         }
-        
+
         $this->setProgress($queue, 1, 'Translation completed');
     }
 

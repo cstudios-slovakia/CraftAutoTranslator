@@ -128,6 +128,14 @@ class TranslateController extends Controller
             return $this->asFailure('Element not found.');
         }
 
+        // Guard against Craft's cross-site fallback: if the element isn't enabled
+        // for the requested site, getElementById() silently returns another site's
+        // row. Queuing a job in that state causes a silent no-op (site-mismatch
+        // check in translateElement() returns false without marking the job failed).
+        if ((int)$element->siteId !== $siteId) {
+            return $this->asFailure("Element {$elementId} is not enabled for site {$siteId}. Enable the element for this site in its settings first.");
+        }
+
         $this->_clearStaleFailedJobs();
 
         Craft::$app->getQueue()->push(new TranslateElementJob([
