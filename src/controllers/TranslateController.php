@@ -16,52 +16,64 @@ class TranslateController extends Controller
     protected array|int|bool $allowAnonymous = false;
 
     /**
-     * Run the queue after the current response has been sent, so the client gets a
-     * fast acknowledgement and queue jobs actually execute. Craft's built-in
-     * runQueueAutomatically dispatches a separate HTTP request to /actions/queue/run
-     * which often fails on shared hosting, leaving jobs sitting in the queue.
+     * Returns true if PHP can detach the response from the client so we can
+     * keep working after the browser already saw a 200. Only PHP-FPM and
+     * LiteSpeed expose this — plain mod_php (and some hosting setups, like
+     * weblap-test.oif.gov.hu) cannot, and there the after-response trick
+     * silently does nothing.
      */
-    private function _runQueueAfterResponse(): void
+    private function _canDetachFromClient(): bool
     {
-        Craft::$app->getResponse()->on(Response::EVENT_AFTER_SEND, function() {
-            // Detach from the client BEFORE doing the slow queue work, so the
-            // browser sees our JSON response instantly. Without a working
-            // detach (FastCGI/LiteSpeed), the OpenAI call blocks the response
-            // and the UI sits silent for ~7s after a click.
-            $detached = false;
-            try {
-                if (function_exists('litespeed_finish_request')) {
-                    @litespeed_finish_request();
-                    $detached = true;
-                } elseif (function_exists('fastcgi_finish_request')) {
-                    @fastcgi_finish_request();
-                    $detached = true;
-                } else {
-                    // mod_php fallback: flush output buffers and close the
-                    // connection by sending Content-Length + Connection: close.
-                    @ignore_user_abort(true);
-                    while (ob_get_level() > 0) {
-                        @ob_end_flush();
+        return function_exists('litespeed_finish_request')
+            || function_exists('fastcgi_finish_request');
+    }
+
+    /**
+     * Run the queue. If we can detach from the client, do it after the response
+     * is sent so the browser gets a fast acknowledgement. Otherwise run inline
+     * BEFORE returning — on hosts without fastcgi_finish_request/litespeed
+     * (e.g. mod_php), the after-response handler can't do real work without
+     * blocking the client anyway, and the polling endpoint hits the same wall.
+     * Without this inline fallback the job sits in the queue until the user
+     * refreshes the page and Craft's runQueueAutomatically background request
+     * picks it up.
+     *
+     * The sidebar JS shows the "working" toast BEFORE the AJAX call, so a
+     * blocking 5-15s response is acceptable from a UX standpoint.
+     */
+    private function _runQueue(): void
+    {
+        if ($this->_canDetachFromClient()) {
+            Craft::$app->getResponse()->on(Response::EVENT_AFTER_SEND, function() {
+                try {
+                    if (function_exists('litespeed_finish_request')) {
+                        @litespeed_finish_request();
+                    } elseif (function_exists('fastcgi_finish_request')) {
+                        @fastcgi_finish_request();
                     }
-                    @flush();
+                } catch (\Throwable $e) {
+                    Craft::warning('Connection detach failed: ' . $e->getMessage(), 'auto-translator');
                 }
-            } catch (\Throwable $e) {
-                Craft::warning('Connection detach failed: ' . $e->getMessage(), 'auto-translator');
-            }
 
-            // If we couldn't detach, don't run the queue inline — it would
-            // block the client. Polling on queue-status will drive execution.
-            if (!$detached) {
-                return;
-            }
+                try {
+                    @set_time_limit(300);
+                    Craft::$app->getQueue()->run();
+                } catch (\Throwable $e) {
+                    Craft::error('Inline queue run failed: ' . $e->getMessage(), 'auto-translator');
+                }
+            });
+            return;
+        }
 
-            try {
-                @set_time_limit(300);
-                Craft::$app->getQueue()->run();
-            } catch (\Throwable $e) {
-                Craft::error('Inline queue run failed: ' . $e->getMessage(), 'auto-translator');
-            }
-        });
+        // Can't detach — run inline before responding so the work actually
+        // happens. Client already sees the "working" toast.
+        try {
+            @set_time_limit(300);
+            @ignore_user_abort(true);
+            Craft::$app->getQueue()->run();
+        } catch (\Throwable $e) {
+            Craft::error('Inline queue run failed: ' . $e->getMessage(), 'auto-translator');
+        }
     }
 
     /**
@@ -144,7 +156,7 @@ class TranslateController extends Controller
             'targetSiteId' => $siteId,
         ]));
 
-        $this->_runQueueAfterResponse();
+        $this->_runQueue();
 
         return $this->asSuccess('Translation job added to queue.', ['jobCount' => 1]);
     }
@@ -207,7 +219,7 @@ class TranslateController extends Controller
             ]));
         }
 
-        $this->_runQueueAfterResponse();
+        $this->_runQueue();
 
         return $this->asSuccess('Translation job(s) added to queue.', [
             'jobCount' => count($targetSiteIds),
