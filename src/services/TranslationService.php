@@ -13,6 +13,14 @@ use cstudios\autotranslator\AutoTranslator;
 class TranslationService extends Component
 {
     /**
+     * Per-field maximum length constraints collected during field extraction,
+     * keyed by field handle: ['handle' => ['unit' => 'characters'|'words', 'limit' => int]].
+     * Passed to OpenAI so the translation is asked to stay within the limit a
+     * PlainText (charLimit) or CKEditor (characterLimit/wordLimit) field enforces.
+     */
+    private array $fieldLimits = [];
+
+    /**
      * Handle the saving of an element (Entry, Product, etc.)
      */
     public function handleElementSaved(ElementInterface $element, bool $isNew)
@@ -114,15 +122,19 @@ class TranslationService extends Component
             : null;
         $targetLanguage = Craft::$app->getSites()->getSiteById($targetSiteId)->language;
 
+        $this->fieldLimits = [];
         $fields = $this->_getTranslatableFields($sourceElement);
         Craft::info("Extracted translatable fields: " . json_encode($fields), 'auto-translator');
-        
+        if (!empty($this->fieldLimits)) {
+            Craft::info("Field length limits: " . json_encode($this->fieldLimits), 'auto-translator');
+        }
+
         if (empty($fields)) {
             Craft::info("No translatable fields found for element $elementId", 'auto-translator');
             return true;
         }
 
-        $translatedFields = AutoTranslator::$plugin->openai->translate($fields, $sourceLanguage, $targetLanguage);
+        $translatedFields = AutoTranslator::$plugin->openai->translate($fields, $sourceLanguage, $targetLanguage, $this->fieldLimits);
         Craft::info("Translated fields received: " . json_encode($translatedFields), 'auto-translator');
 
         if ($translatedFields) {
@@ -183,7 +195,21 @@ class TranslationService extends Component
 
         $element->setScenario(\craft\base\Element::SCENARIO_LIVE);
         try {
-            return Craft::$app->getElements()->saveElement($element);
+            $saved = Craft::$app->getElements()->saveElement($element);
+            if (!$saved && $element->hasErrors()) {
+                // A validation error (e.g. a translated value exceeding a field's
+                // character limit) is the single most common save failure. Surface
+                // it as an exception with a human-readable message so the queue
+                // records it and the sidebar shows the real reason in the toast,
+                // instead of a generic "Translation failed".
+                Craft::error(
+                    "Validation errors on save for element {$element->id} (site {$element->siteId}): "
+                        . json_encode($element->getErrors(), JSON_UNESCAPED_UNICODE),
+                    'auto-translator'
+                );
+                throw new \RuntimeException($this->_formatValidationErrors($element));
+            }
+            return $saved;
         } catch (\Throwable $e) {
             // Solspace Calendar events (and some other element types) can throw
             // "Attempting to save an element in an unsupported site" at save time
@@ -199,6 +225,66 @@ class TranslationService extends Component
             }
             throw $e;
         }
+    }
+
+    /**
+     * Flatten an element's validation errors into a single human-readable string.
+     * Craft's messages already name the field (e.g. "*Short intro* should contain
+     * at most 135 characters."), which is exactly what we want in the toast.
+     */
+    private function _formatValidationErrors(ElementInterface $element): string
+    {
+        $messages = [];
+        foreach ($element->getErrors() as $attr => $attrMessages) {
+            foreach ((array)$attrMessages as $m) {
+                $m = trim((string)$m);
+                if ($m !== '' && !in_array($m, $messages, true)) {
+                    $messages[] = $m;
+                }
+            }
+        }
+
+        if (empty($messages)) {
+            return 'Element validation failed on save.';
+        }
+
+        return implode(' ', $messages);
+    }
+
+    /**
+     * Return the maximum-length constraint a field enforces, if any, as
+     * ['unit' => 'characters'|'words', 'limit' => int]. Used to tell OpenAI to
+     * keep the translation within the limit so the save doesn't fail validation.
+     */
+    /**
+     * If the field enforces a max length, remember it (keyed by handle) so it can
+     * be sent to OpenAI. Records nested fields too — handles are unique enough that
+     * a flat map lines up with the keys the model sees in the JSON.
+     */
+    private function _recordFieldLimit(\craft\base\FieldInterface $field): void
+    {
+        $limit = $this->_getFieldLimit($field);
+        if ($limit !== null) {
+            $this->fieldLimits[$field->handle] = $limit;
+        }
+    }
+
+    private function _getFieldLimit(\craft\base\FieldInterface $field): ?array
+    {
+        if ($field instanceof \craft\fields\PlainText && !empty($field->charLimit)) {
+            return ['unit' => 'characters', 'limit' => (int)$field->charLimit];
+        }
+
+        if (class_exists('\craft\ckeditor\Field') && $field instanceof \craft\ckeditor\Field) {
+            if (!empty($field->characterLimit)) {
+                return ['unit' => 'characters', 'limit' => (int)$field->characterLimit];
+            }
+            if (!empty($field->wordLimit)) {
+                return ['unit' => 'words', 'limit' => (int)$field->wordLimit];
+            }
+        }
+
+        return null;
     }
 
     private function _getFieldFromLayout(ElementInterface $element, string $handle): ?\craft\base\FieldInterface
@@ -355,10 +441,12 @@ class TranslationService extends Component
                 // because their rows contain text content that needs translation.
                 if (is_string($value) && !empty($value)) {
                     $fieldsToTranslate[$field->handle] = $value;
+                    $this->_recordFieldLimit($field);
                 } elseif (is_object($value) && method_exists($value, '__toString')) {
                     $strValue = (string)$value;
                     if (!empty($strValue)) {
                         $fieldsToTranslate[$field->handle] = $strValue;
+                        $this->_recordFieldLimit($field);
                     }
                 } elseif (is_array($value) && !empty($value)) {
                     $fieldsToTranslate[$field->handle] = $value;

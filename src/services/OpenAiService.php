@@ -16,9 +16,11 @@ class OpenAiService extends Component
      * @param array $content The content to translate, structured as fieldHandle => content.
      * @param string $sourceLanguage The source language (e.g., 'en', 'sk').
      * @param string $targetLanguage The target language (e.g., 'de', 'fr').
+     * @param array $fieldLimits Per-field max-length constraints keyed by handle:
+     *                           ['handle' => ['unit' => 'characters'|'words', 'limit' => int]].
      * @return array|null Returns the translated array, or null on failure.
      */
-    public function translate(array $content, ?string $sourceLanguage, string $targetLanguage): ?array
+    public function translate(array $content, ?string $sourceLanguage, string $targetLanguage, array $fieldLimits = []): ?array
     {
         $settings = AutoTranslator::$plugin->getSettings();
         $apiKey = App::parseEnv($settings->openaiApiKey);
@@ -43,6 +45,8 @@ class OpenAiService extends Component
                 . "ALWAYS attempt the translation. Translate every descriptive word, even when the text contains proper nouns, brand names, event names, dates, numbers, or place names — translate the descriptive/common-noun parts around them and keep the proper nouns, brand names, person names, and place names in their original form. For example 'Letný hudobný festival Pohoda 2025' → Hungarian: 'Pohoda 2025 nyári zenei fesztivál' (the brand 'Pohoda' and year stay, the surrounding words are translated).\n\n"
                 . "Only keep a value unchanged if it is literally a code snippet, a URL, a single number, an email address, or a slug-like token with no natural-language words. Titles, headings, names of events, and any phrase containing at least one common-language word MUST be translated. Never return the source text unchanged just because it contains a name.\n\n"
                 . "Never return explanations, apologies, refusals, or error messages — always return a valid translated JSON value for every key.";
+
+            $systemPrompt .= $this->_buildLimitInstruction($fieldLimits);
 
             $response = $client->chat()->create([
                 'model' => 'gpt-4o',
@@ -96,6 +100,34 @@ class OpenAiService extends Component
             Craft::error('OpenAI Translation failed: ' . $e->getMessage(), __METHOD__);
             throw new \RuntimeException('Translation failed: ' . $e->getMessage(), 0, $e);
         }
+    }
+
+    /**
+     * Build an instruction block listing the fields that have a hard max length,
+     * so the model produces translations that fit and the CMS save doesn't fail
+     * validation. Returns an empty string when there are no constrained fields.
+     */
+    private function _buildLimitInstruction(array $fieldLimits): string
+    {
+        if (empty($fieldLimits)) {
+            return '';
+        }
+
+        $lines = [];
+        foreach ($fieldLimits as $handle => $info) {
+            $limit = (int)($info['limit'] ?? 0);
+            $unit = $info['unit'] ?? 'characters';
+            if ($limit > 0) {
+                $lines[] = "- \"$handle\": at most $limit $unit";
+            }
+        }
+
+        if (empty($lines)) {
+            return '';
+        }
+
+        return "\n\nLENGTH LIMITS — STRICT. The CMS rejects values that exceed these maximums, so the translated value for each listed field MUST stay within its limit. If a faithful translation would be too long, rephrase it more concisely (shorten wording, remove redundancy, use shorter synonyms) while preserving the core meaning and any HTML tags. Count includes all characters of the value. The constrained fields are:\n"
+            . implode("\n", $lines);
     }
 
     private function _filterRefusals(array $original, array $translated): array
